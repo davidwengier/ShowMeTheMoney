@@ -1,0 +1,72 @@
+name: Publish Windows release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Calculate version
+        id: version
+        shell: pwsh
+        run: |
+          $version = "0.1.$env:GITHUB_RUN_NUMBER"
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Test
+        run: dotnet test .\ShowMeTheMoney.slnx --configuration Release
+
+      - name: Publish
+        run: >
+          dotnet publish .\src\ShowMeTheMoney.Desktop
+          --configuration Release
+          --runtime win-x64
+          --self-contained false
+          --output .\artifacts\publish
+          -p:Version=${{ steps.version.outputs.value }}
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=None
+          -p:DebugSymbols=false
+
+      - name: Restore VeloPack
+        run: dotnet tool restore
+
+      - name: Package
+        run: >
+          dotnet vpk pack
+          --packId DavidWengier.ShowMeTheMoney
+          --packVersion ${{ steps.version.outputs.value }}
+          --packDir .\artifacts\publish
+          --mainExe ShowMeTheMoney.exe
+          --packTitle "Show Me The Money"
+          --packAuthors "David Wengier"
+          --outputDir .\artifacts\releases
+          --runtime win-x64
+          --framework "net10.0-x64-desktop,webview2"
+          --noPortable
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.value }}
+          name: Show Me The Money ${{ steps.version.outputs.value }}
+          generate_release_notes: true
+          make_latest: true
+          files: artifacts/releases/*

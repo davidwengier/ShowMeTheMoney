@@ -1,0 +1,265 @@
+@page "/"
+
+<PageTitle>Show Me The Money</PageTitle>
+
+<section class="hero">
+    <div>
+        <p class="eyebrow">Your money, made visible</p>
+        <h1>Transactions</h1>
+        <p class="hero-copy">
+            Start with a clear view of where money is coming from and where it is going.
+        </p>
+    </div>
+    <div class="hero-actions">
+        <button class="secondary-button" @onclick="LoadAsync" disabled="@isLoading">
+            Refresh
+        </button>
+        <button class="primary-button" @onclick="ImportQifAsync" disabled="@isLoading">
+            @(isLoading ? "Working..." : "Import QIF")
+        </button>
+    </div>
+</section>
+
+@if (importMessage is not null)
+{
+    <div class="message import-message">@importMessage</div>
+}
+
+@if (errorMessage is not null)
+{
+    <div class="message error-message">@errorMessage</div>
+}
+else if (snapshot is null)
+{
+    <div class="loading-card">Loading transactions...</div>
+}
+else if (snapshot.Transactions.Count == 0)
+{
+    <section class="empty-state">
+        <div class="empty-state-icon">QIF</div>
+        <p class="eyebrow">Nothing imported yet</p>
+        <h2>Import your bank transactions</h2>
+        <p>
+            Download a QIF transaction export from your bank, then select
+            <strong>Import QIF</strong> above.
+        </p>
+    </section>
+}
+else
+{
+    <section class="connection-card">
+        <div>
+            <span class="status-dot"></span>
+            <strong>@snapshot.InstitutionName</strong>
+            <span class="muted"> · @snapshot.DataSourceDescription</span>
+        </div>
+        <span class="connection-label">Local data</span>
+    </section>
+
+    <section class="summary-grid">
+        <article class="summary-card">
+            <span>Money in</span>
+            <strong class="positive">@FormatMoney(summary.Income)</strong>
+        </article>
+        <article class="summary-card">
+            <span>Money out</span>
+            <strong class="negative">@FormatMoney(summary.Spending)</strong>
+        </article>
+        <article class="summary-card">
+            <span>Net cash flow</span>
+            <strong class="@(summary.NetCashFlow >= 0 ? "positive" : "negative")">
+                @FormatMoney(summary.NetCashFlow)
+            </strong>
+        </article>
+        <article class="summary-card">
+            <span>Known balances</span>
+            <strong>@FormatKnownBalances(snapshot.Accounts)</strong>
+        </article>
+    </section>
+
+    <section class="content-grid">
+        <article class="panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Linked accounts</p>
+                    <h2>Accounts</h2>
+                </div>
+                <span>@snapshot.Accounts.Count</span>
+            </div>
+            <div class="account-list">
+                @foreach (var account in snapshot.Accounts)
+                {
+                    <div class="account-row">
+                        <div>
+                            <strong>@account.Name</strong>
+                            <span>@account.MaskedNumber</span>
+                        </div>
+                        <strong>@FormatOptionalMoney(account.Balance)</strong>
+                    </div>
+                }
+            </div>
+        </article>
+
+        <article class="panel transactions-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Recent activity</p>
+                    <h2>Latest transactions</h2>
+                </div>
+                <span>@snapshot.Transactions.Count</span>
+            </div>
+            <div class="transaction-list">
+                @foreach (var transaction in snapshot.Transactions.OrderByDescending(item => item.PostedOn))
+                {
+                    <div class="transaction-row">
+                        <div class="transaction-date">
+                            <strong>@transaction.PostedOn.Day</strong>
+                            <span>@transaction.PostedOn.ToString("MMM")</span>
+                        </div>
+                        <div class="transaction-description">
+                            <strong>@transaction.Description</strong>
+                            <span>@transaction.Category</span>
+                        </div>
+                        <strong class="@(transaction.Amount >= 0 ? "positive" : "negative")">
+                            @FormatSignedMoney(transaction.Amount)
+                        </strong>
+                    </div>
+                }
+            </div>
+        </article>
+    </section>
+}
+
+@if (updateStatus is not null)
+{
+    <div class="message update-message">@updateStatus</div>
+}
+
+@code {
+    [Inject]
+    private IBankingDataSource DataSource { get; set; } = null!;
+
+    [Inject]
+    private IBankingDataStore DataStore { get; set; } = null!;
+
+    [Inject]
+    private IQifFilePicker FilePicker { get; set; } = null!;
+
+    [Inject]
+    private QifParser Parser { get; set; } = null!;
+
+    [Inject]
+    private IApplicationUpdateService UpdateService { get; set; } = null!;
+
+    private BankingSnapshot? snapshot;
+    private TransactionSummary summary = new(0, 0, 0);
+    private string? errorMessage;
+    private string? importMessage;
+    private string? updateStatus;
+    private bool isLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        await CheckForUpdateAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            snapshot = await DataSource.GetSnapshotAsync();
+            summary = TransactionSummarizer.Summarize(snapshot.Transactions);
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Transactions could not be loaded: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ImportQifAsync()
+    {
+        errorMessage = null;
+        importMessage = null;
+
+        using var selectedFile = await FilePicker.PickAsync();
+        if (selectedFile is null)
+        {
+            return;
+        }
+
+        isLoading = true;
+
+        try
+        {
+            var result = Parser.Parse(selectedFile.Content, selectedFile.FileName);
+            await DataStore.ReplaceSnapshotAsync(result.Snapshot);
+            snapshot = result.Snapshot;
+            summary = TransactionSummarizer.Summarize(snapshot.Transactions);
+            importMessage = result.Warnings.Count == 0
+                ? $"Imported {snapshot.Transactions.Count} transactions from {selectedFile.FileName}."
+                : $"Imported {snapshot.Transactions.Count} transactions with "
+                    + $"{result.Warnings.Count} skipped records. {string.Join(" ", result.Warnings.Take(3))}";
+        }
+        catch (QifParseException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        catch (IOException exception)
+        {
+            errorMessage = $"The QIF file could not be read or saved: {exception.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        if (!UpdateService.CanUpdate)
+        {
+            return;
+        }
+
+        try
+        {
+            var update = await UpdateService.CheckForUpdateAsync();
+            if (update is not null)
+            {
+                updateStatus = $"Version {update.Version} is available and can be installed on the next app update pass.";
+            }
+        }
+        catch (ApplicationUpdateException exception)
+        {
+            updateStatus = exception.Message;
+        }
+    }
+
+    private static string FormatMoney(decimal amount) => amount.ToString("C2");
+
+    private static string FormatOptionalMoney(decimal? amount) =>
+        amount is null ? "Not supplied" : FormatMoney(amount.Value);
+
+    private static string FormatKnownBalances(IReadOnlyList<BankAccount> accounts)
+    {
+        var knownBalances = accounts
+            .Where(account => account.Balance.HasValue)
+            .Select(account => account.Balance!.Value)
+            .ToArray();
+
+        return knownBalances.Length == 0
+            ? "Not supplied by QIF"
+            : FormatMoney(knownBalances.Sum());
+    }
+
+    private static string FormatSignedMoney(decimal amount) =>
+        amount >= 0 ? $"+{amount:C2}" : amount.ToString("C2");
+}

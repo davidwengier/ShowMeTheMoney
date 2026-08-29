@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ShowMeTheMoney.Core\ShowMeTheMoney.Core.csproj" />
+    <ProjectReference Include="..\ShowMeTheMoney.UI\ShowMeTheMoney.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView"
+                      Version="10.0.0"
+                      GeneratePathProperty="true" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView.WindowsForms" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.FileProviders.Embedded" Version="10.0.0" />
+    <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>ShowMeTheMoney</AssemblyName>
+    <AssemblyTitle>Show Me The Money</AssemblyTitle>
+    <Product>Show Me The Money</Product>
+    <Description>A local-first view of your accounts, transactions and budgets.</Description>
+    <Version>0.1.0</Version>
+    <TargetFramework>net10.0-windows10.0.17763.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\index.html"
+                      Link="wwwroot\index.html" />
+    <EmbeddedResource Include="..\ShowMeTheMoney.UI\wwwroot\css\app.css"
+                      Link="wwwroot\_content\ShowMeTheMoney.UI\css\app.css" />
+    <EmbeddedResource Include="$(PkgMicrosoft_AspNetCore_Components_WebView)\staticwebassets\blazor.modules.json"
+                      Link="wwwroot\_framework\blazor.modules.json" />
+    <EmbeddedResource Include="$(PkgMicrosoft_AspNetCore_Components_WebView)\staticwebassets\blazor.webview.js"
+                      Link="wwwroot\_framework\blazor.webview.js" />
+    <Content Update="wwwroot\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <Target Name="RemoveUnusedWebView2WpfReference" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <_UnusedWebView2WpfReference Include="@(Reference)"
+                                   Condition="'%(Reference.Filename)' == 'Microsoft.Web.WebView2.Wpf'" />
+      <Reference Remove="@(_UnusedWebView2WpfReference)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RemoveExternalWebAssetsFromSingleFilePublish"
+          AfterTargets="Publish"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <_SingleFilePublishExtras Include="$(PublishDir)**\*"
+                                Exclude="$(PublishDir)$(AssemblyName).exe" />
+    </ItemGroup>
+    <Delete Files="@(_SingleFilePublishExtras)" />
+    <RemoveDir Directories="$(PublishDir)wwwroot;$(PublishDir)runtimes" />
+  </Target>
+
+</Project>
