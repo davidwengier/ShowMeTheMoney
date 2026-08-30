@@ -1,0 +1,109 @@
+@page "/cash-flow"
+
+<PageTitle>Cash Flow - Show Me The Money</PageTitle>
+
+<section class="hero cash-flow-hero">
+    <div>
+        <p class="eyebrow">Where your money moves</p>
+        <h1>Cash flow</h1>
+        <p class="hero-copy">
+            Category totals across all imported transactions.
+        </p>
+    </div>
+
+    @if (snapshot is not null && snapshot.Accounts.Count > 0)
+    {
+        <label class="account-filter">
+            <span>Account</span>
+            <select value="@selectedAccountId" @onchange="SelectAccount">
+                <option value="">All accounts</option>
+                @foreach (var account in snapshot.Accounts)
+                {
+                    <option value="@account.Id">@account.Name</option>
+                }
+            </select>
+        </label>
+    }
+</section>
+
+@if (errorMessage is not null)
+{
+    <div class="message error-message">@errorMessage</div>
+}
+else if (snapshot is null)
+{
+    <div class="loading-card">Loading cash flow...</div>
+}
+else if (snapshot.Transactions.Count == 0)
+{
+    <section class="empty-state">
+        <p class="eyebrow">No transaction data</p>
+        <h2>Import transactions to see your cash flow</h2>
+        <p>The diagrams will group incoming and outgoing money by category.</p>
+    </section>
+}
+else
+{
+    var flowSummary = CategoryFlowSummarizer.Summarize(FilteredTransactions);
+    <section class="sankey-grid">
+        <article class="panel sankey-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Income sources</p>
+                    <h2>Money in</h2>
+                </div>
+                <strong class="positive">@FormatMoney(flowSummary.MoneyIn.Sum(flow => flow.Amount))</strong>
+            </div>
+            <CategorySankey Flows="@flowSummary.MoneyIn"
+                            TotalLabel="Money in"
+                            FlowsIntoTotal="true" />
+        </article>
+
+        <article class="panel sankey-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Spending destinations</p>
+                    <h2>Money out</h2>
+                </div>
+                <strong class="negative">@FormatMoney(flowSummary.MoneyOut.Sum(flow => flow.Amount))</strong>
+            </div>
+            <CategorySankey Flows="@flowSummary.MoneyOut"
+                            TotalLabel="Money out" />
+        </article>
+    </section>
+}
+
+@code {
+    [Inject]
+    private IBankingDataSource DataSource { get; set; } = null!;
+
+    private BankingSnapshot? snapshot;
+    private string? selectedAccountId;
+    private string? errorMessage;
+
+    private IEnumerable<BankTransaction> FilteredTransactions =>
+        string.IsNullOrEmpty(selectedAccountId)
+            ? snapshot?.Transactions ?? []
+            : snapshot?.Transactions.Where(
+                transaction => transaction.AccountId == selectedAccountId)
+                ?? [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            snapshot = await DataSource.GetSnapshotAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Cash flow could not be loaded: {exception.Message}";
+        }
+    }
+
+    private void SelectAccount(ChangeEventArgs args)
+    {
+        selectedAccountId = args.Value?.ToString();
+    }
+
+    private static string FormatMoney(decimal amount) => amount.ToString("C2");
+}

@@ -1,0 +1,188 @@
+@using System.Globalization
+
+@if (Flows.Count == 0)
+{
+    <div class="sankey-empty">
+        <strong>No @TotalLabel.ToLowerInvariant() transactions</strong>
+        <span>Import or categorise transactions to populate this diagram.</span>
+    </div>
+}
+else
+{
+    var diagram = BuildDiagram();
+    <div class="sankey-scroll">
+        <svg class="sankey-diagram"
+             viewBox="0 0 900 @diagram.Height"
+             role="img"
+             aria-label="@($"{TotalLabel} by category")">
+            <title>@TotalLabel by category</title>
+
+            @foreach (var flow in diagram.Flows)
+            {
+                <path class="sankey-link"
+                      d="@flow.Path"
+                      stroke="@flow.Color"
+                      stroke-width="@FormatNumber(flow.LinkWidth)" />
+            }
+
+            <rect class="sankey-total-node"
+                  x="@FormatNumber(diagram.TotalX)"
+                  y="@FormatNumber(diagram.TotalY)"
+                  width="@FormatNumber(NodeWidth)"
+                  height="@FormatNumber(diagram.TotalHeight)" />
+
+            @foreach (var flow in diagram.Flows)
+            {
+                <rect x="@FormatNumber(flow.CategoryX)"
+                      y="@FormatNumber(flow.CategoryY)"
+                      width="@FormatNumber(NodeWidth)"
+                      height="@FormatNumber(flow.LinkWidth)"
+                      rx="3"
+                      fill="@flow.Color" />
+                <foreignObject x="@FormatNumber(
+                                    flow.TextAnchor == "end" ? flow.LabelX - 220 : flow.LabelX)"
+                               y="@FormatNumber(flow.LabelY - 17)"
+                               width="220"
+                               height="46">
+                    <div class="@($"sankey-svg-label {flow.TextAnchor}")">
+                        <strong>@flow.Category</strong>
+                        <span>@FormatMoney(flow.Amount)</span>
+                    </div>
+                </foreignObject>
+            }
+
+            <foreignObject x="@FormatNumber(
+                                diagram.TotalTextAnchor == "end"
+                                    ? diagram.TotalLabelX - 190
+                                    : diagram.TotalLabelX)"
+                           y="@FormatNumber(diagram.TotalLabelY - 18)"
+                           width="190"
+                           height="52">
+                <div class="@($"sankey-svg-label total {diagram.TotalTextAnchor}")">
+                    <strong>@TotalLabel</strong>
+                    <span>@FormatMoney(Flows.Sum(flow => flow.Amount))</span>
+                </div>
+            </foreignObject>
+        </svg>
+    </div>
+}
+
+@code {
+    private const double NodeWidth = 18;
+    private const double CategoryGap = 24;
+    private const double MinimumLinkWidth = 5;
+
+    [Parameter, EditorRequired]
+    public IReadOnlyList<CategoryFlow> Flows { get; set; } = [];
+
+    [Parameter, EditorRequired]
+    public string TotalLabel { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool FlowsIntoTotal { get; set; }
+
+    private DiagramLayout BuildDiagram()
+    {
+        var height = Math.Max(320, 84 + (Flows.Count * 62));
+        var totalAmount = (double)Flows.Sum(flow => flow.Amount);
+        var availableHeight = height - 80 - (CategoryGap * (Flows.Count - 1));
+        var scale = availableHeight / totalAmount;
+        var widths = Flows
+            .Select(flow => Math.Max(MinimumLinkWidth, (double)flow.Amount * scale))
+            .ToArray();
+        var totalHeight = widths.Sum();
+        var categoryBlockHeight = totalHeight + (CategoryGap * (Flows.Count - 1));
+        var categoryY = (height - categoryBlockHeight) / 2;
+        var totalY = (height - totalHeight) / 2;
+        var categoryX = FlowsIntoTotal ? 260d : 622d;
+        var totalX = FlowsIntoTotal ? 622d : 260d;
+        var totalOffset = 0d;
+        var layouts = new List<FlowLayout>(Flows.Count);
+
+        for (var index = 0; index < Flows.Count; index++)
+        {
+            var flow = Flows[index];
+            var linkWidth = widths[index];
+            var categoryCenterY = categoryY + (linkWidth / 2);
+            var totalCenterY = totalY + totalOffset + (linkWidth / 2);
+            var sourceX = FlowsIntoTotal ? categoryX + NodeWidth : totalX + NodeWidth;
+            var sourceY = FlowsIntoTotal ? categoryCenterY : totalCenterY;
+            var destinationX = FlowsIntoTotal ? totalX : categoryX;
+            var destinationY = FlowsIntoTotal ? totalCenterY : categoryCenterY;
+            var controlX = (sourceX + destinationX) / 2;
+            var labelX = FlowsIntoTotal ? categoryX - 12 : categoryX + NodeWidth + 12;
+
+            layouts.Add(new FlowLayout(
+                flow.Category,
+                flow.Amount,
+                categoryX,
+                categoryY,
+                linkWidth,
+                labelX,
+                categoryCenterY - 5,
+                FlowsIntoTotal ? "end" : "start",
+                GetColor(flow.Category),
+                FormattableString.Invariant(
+                    $"M {sourceX:0.##} {sourceY:0.##} C {controlX:0.##} {sourceY:0.##}, {controlX:0.##} {destinationY:0.##}, {destinationX:0.##} {destinationY:0.##}")));
+
+            categoryY += linkWidth + CategoryGap;
+            totalOffset += linkWidth;
+        }
+
+        var totalLabelX = FlowsIntoTotal ? totalX + NodeWidth + 14 : totalX - 14;
+        return new DiagramLayout(
+            height,
+            totalX,
+            totalY,
+            totalHeight,
+            totalLabelX,
+            (height / 2) - 5,
+            FlowsIntoTotal ? "start" : "end",
+            layouts);
+    }
+
+    private static string GetColor(string category) =>
+        category.ToUpperInvariant() switch
+        {
+            "DINING" => "#ff9f68",
+            "ENTERTAINMENT" => "#b69cff",
+            "FEES" => "#ff7e79",
+            "GROCERIES" => "#58d68d",
+            "HEALTH" => "#ff8fcf",
+            "HOUSING" => "#69a7ff",
+            "INCOME" => "#42e59b",
+            "SHOPPING" => "#f6c85f",
+            "TRANSFERS" => "#8bd3dd",
+            "TRANSPORT" => "#7fc8f8",
+            "UTILITIES" => "#c4d66d",
+            "UNCATEGORISED" => "#718b81",
+            _ => "#91a69e"
+        };
+
+    private static string FormatNumber(double value) =>
+        value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    private static string FormatMoney(decimal amount) => amount.ToString("C2");
+
+    private sealed record DiagramLayout(
+        double Height,
+        double TotalX,
+        double TotalY,
+        double TotalHeight,
+        double TotalLabelX,
+        double TotalLabelY,
+        string TotalTextAnchor,
+        IReadOnlyList<FlowLayout> Flows);
+
+    private sealed record FlowLayout(
+        string Category,
+        decimal Amount,
+        double CategoryX,
+        double CategoryY,
+        double LinkWidth,
+        double LabelX,
+        double LabelY,
+        string TextAnchor,
+        string Color,
+        string Path);
+}
