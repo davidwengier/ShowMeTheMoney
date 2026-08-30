@@ -11,7 +11,7 @@ public sealed class TransactionCategoryRulesTests
     [InlineData("Monthly account fee", -5, "Fees")]
     [InlineData("Salary payment", 2500, "Income")]
     [InlineData("Osko payment", -100, "Transfers")]
-    public void Categorize_UncategorisedTransactionUsesBuiltInRules(
+    public void Categorize_UncategorisedTransactionUsesSeedRules(
         string description,
         decimal amount,
         string expectedCategory)
@@ -20,26 +20,74 @@ public sealed class TransactionCategoryRulesTests
 
         var category = TransactionCategoryRules.Categorize(
             transaction,
-            new Dictionary<string, string>());
+            TransactionCategoryRules.Defaults);
 
         Assert.Equal(expectedCategory, category);
     }
 
     [Fact]
-    public void Categorize_LearnedRuleOverridesImportedCategory()
+    public void Categorize_ExactRuleOverridesImportedCategory()
     {
         var transaction = CreateTransaction("Coffee-Club", -12m) with
         {
             Category = "Imported category"
         };
-        var rules = new Dictionary<string, string>
-        {
-            [TransactionCategoryRules.NormalizeDescription("coffee club")] = "Dining"
-        };
+        TransactionCategoryRule[] rules =
+        [
+            new(
+                "coffee club",
+                "Dining",
+                TransactionCategoryRuleMatch.ExactDescription)
+        ];
 
         var category = TransactionCategoryRules.Categorize(transaction, rules);
 
         Assert.Equal("Dining", category);
+    }
+
+    [Fact]
+    public void Categorize_NoAutomaticMatchPreservesCurrentCategory()
+    {
+        var transaction = CreateTransaction("Local Chemist", -12m) with
+        {
+            Category = "Health - Fred"
+        };
+        TransactionCategoryRule[] rules =
+        [
+            new(
+                "Local Chemist",
+                "Health - Fred",
+                TransactionCategoryRuleMatch.NoAutomaticMatch),
+            new(
+                "Chemist",
+                "Health",
+                TransactionCategoryRuleMatch.DescriptionContains)
+        ];
+
+        var category = TransactionCategoryRules.Categorize(transaction, rules);
+
+        Assert.Equal("Health - Fred", category);
+    }
+
+    [Fact]
+    public void Categorize_NoAutomaticMatchDoesNotCategorizeNewTransaction()
+    {
+        var transaction = CreateTransaction("Local Chemist", -12m);
+        TransactionCategoryRule[] rules =
+        [
+            new(
+                "Local Chemist",
+                "Health - Fred",
+                TransactionCategoryRuleMatch.NoAutomaticMatch),
+            new(
+                "Chemist",
+                "Health",
+                TransactionCategoryRuleMatch.DescriptionContains)
+        ];
+
+        var category = TransactionCategoryRules.Categorize(transaction, rules);
+
+        Assert.Equal(TransactionCategories.Uncategorised, category);
     }
 
     [Fact]
@@ -50,9 +98,7 @@ public sealed class TransactionCategoryRulesTests
             Category = "Holiday"
         };
 
-        var category = TransactionCategoryRules.Categorize(
-            transaction,
-            new Dictionary<string, string>());
+        var category = TransactionCategoryRules.Categorize(transaction, []);
 
         Assert.Equal("Holiday", category);
     }
@@ -70,18 +116,35 @@ public sealed class TransactionCategoryRulesTests
     public void Categorize_ShortRuleDoesNotMatchInsideAnotherWord()
     {
         var transaction = CreateTransaction("Origami supplies", -12m);
+        TransactionCategoryRule[] rules =
+        [
+            new("IGA", "Groceries", TransactionCategoryRuleMatch.DescriptionContains)
+        ];
 
-        var category = TransactionCategoryRules.Categorize(
-            transaction,
-            new Dictionary<string, string>());
+        var category = TransactionCategoryRules.Categorize(transaction, rules);
 
         Assert.Equal(TransactionCategories.Uncategorised, category);
     }
 
     [Fact]
+    public void Categorize_MostSpecificContainsRuleWins()
+    {
+        var transaction = CreateTransaction("Uber Eats order", -24m);
+        TransactionCategoryRule[] rules =
+        [
+            new("UBER", "Transport", TransactionCategoryRuleMatch.DescriptionContains),
+            new("UBER EATS", "Dining", TransactionCategoryRuleMatch.DescriptionContains)
+        ];
+
+        var category = TransactionCategoryRules.Categorize(transaction, rules);
+
+        Assert.Equal("Dining", category);
+    }
+
+    [Fact]
     public void Categories_UseNewCategoryFlowInsteadOfOther()
     {
-        Assert.DoesNotContain("Other", TransactionCategories.All);
+        Assert.DoesNotContain("Other", TransactionCategories.Defaults);
     }
 
     [Fact]
@@ -92,9 +155,7 @@ public sealed class TransactionCategoryRulesTests
             Category = "Other"
         };
 
-        var category = TransactionCategoryRules.Categorize(
-            transaction,
-            new Dictionary<string, string>());
+        var category = TransactionCategoryRules.Categorize(transaction, []);
 
         Assert.Equal(TransactionCategories.Uncategorised, category);
     }

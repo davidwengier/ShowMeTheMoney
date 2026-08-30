@@ -7,7 +7,7 @@
         <p class="eyebrow">Organise your transactions</p>
         <h1>Categories</h1>
         <p class="hero-copy">
-            Add and manage custom categories, then quickly classify one
+            Add, rename, or delete categories, then quickly classify one
             uncategorised transaction at a time.
         </p>
     </div>
@@ -64,17 +64,17 @@ else
                             <span>Category</span>
                             <select @bind="selectedReviewCategory" disabled="@isWorking">
                                 <option value="">Choose a category</option>
-                                @foreach (var category in categories.Where(
-                                    category => category.Name != TransactionCategories.Uncategorised))
+                                @foreach (var category in EditableCategories)
                                 {
                                     <option value="@category.Name">@category.Name</option>
                                 }
+                                <option value="@NewCategoryOption">New...</option>
                             </select>
                         </label>
                         <button class="primary-button"
-                                @onclick="CategoriseRandomTransactionAsync"
+                                @onclick="BeginReviewAssignmentAsync"
                                 disabled="@isWorking">
-                            Categorise and show another
+                            Categorise
                         </button>
                     </div>
                 </div>
@@ -87,11 +87,11 @@ else
                     <p class="eyebrow">Available choices</p>
                     <h2>All categories</h2>
                 </div>
-                <span>@categories.Count</span>
+                <span>@EditableCategories.Count</span>
             </div>
 
             <div class="add-category-form">
-                <label for="new-category-name">Add a custom category</label>
+                <label for="new-category-name">Add a category</label>
                 <div class="inline-form">
                     <input id="new-category-name"
                            placeholder="e.g. Pets"
@@ -107,7 +107,7 @@ else
             </div>
 
             <div class="category-list">
-                @foreach (var category in categories)
+                @foreach (var category in EditableCategories)
                 {
                     <div class="category-row">
                         @if (categoryBeingEdited == category.Name)
@@ -122,16 +122,8 @@ else
                             <strong>@category.Name</strong>
                         }
 
-                        <span class="category-type">
-                            @(category.IsBuiltIn ? "Built-in" : "Custom")
-                        </span>
-
                         <div class="category-row-actions">
-                            @if (category.IsBuiltIn)
-                            {
-                                <span class="muted">Protected</span>
-                            }
-                            else if (categoryBeingEdited == category.Name)
+                            @if (categoryBeingEdited == category.Name)
                             {
                                 <button class="primary-button compact-button"
                                         @onclick="SaveCategoryRenameAsync"
@@ -178,17 +170,118 @@ else
     </section>
 }
 
+@if (transactionForNewCategory is not null)
+{
+    <div class="dialog-backdrop">
+        <section class="category-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="review-new-category-title">
+            <p class="eyebrow">Custom category</p>
+            <h2 id="review-new-category-title">Create a category</h2>
+            <p class="muted">
+                Create a category for
+                <strong>@transactionForNewCategory.Description</strong>:
+            </p>
+            <label>
+                <span>Category name</span>
+                <input autofocus
+                       aria-label="New category name"
+                       @bind="reviewNewCategoryName"
+                       @bind:event="oninput"
+                       @onkeydown="HandleReviewNewCategoryKeyDown" />
+            </label>
+            @if (reviewNewCategoryError is not null)
+            {
+                <span class="dialog-error">@reviewNewCategoryError</span>
+            }
+            <div class="dialog-actions">
+                <button class="secondary-button"
+                        @onclick="CancelReviewNewCategory"
+                        disabled="@isWorking">
+                    Cancel
+                </button>
+                <button class="primary-button"
+                        @onclick="ContinueReviewNewCategoryAsync"
+                        disabled="@isWorking">
+                    Continue
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (assignmentTransaction is not null
+    && assignmentCategory is not null
+    && assignmentPreview is not null)
+{
+    <div class="dialog-backdrop">
+        <section class="category-dialog assignment-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="review-assignment-title">
+            <p class="eyebrow">Apply category</p>
+            <h2 id="review-assignment-title">@assignmentCategory</h2>
+            <p class="muted">
+                <strong>@assignmentTransaction.Description</strong> has
+                @assignmentPreview.OtherMatchingCount other matching
+                @(assignmentPreview.OtherMatchingCount == 1 ? "transaction" : "transactions").
+                @assignmentPreview.OtherUncategorisedCount of those
+                @(assignmentPreview.OtherUncategorisedCount == 1 ? "is" : "are")
+                uncategorised.
+            </p>
+            <div class="assignment-actions">
+                <button class="primary-button"
+                        @onclick="() => ConfirmAssignmentAsync(TransactionCategoryAssignmentScope.AllMatching)"
+                        disabled="@isWorking">
+                    Update all @(assignmentPreview.OtherMatchingCount + 1) transactions
+                </button>
+                <button class="secondary-button"
+                        @onclick="() => ConfirmAssignmentAsync(TransactionCategoryAssignmentScope.MatchingUncategorised)"
+                        disabled="@(isWorking || assignmentPreview.OtherUncategorisedCount == 0)">
+                    Update this and @assignmentPreview.OtherUncategorisedCount uncategorised
+                </button>
+                <button class="secondary-button"
+                        @onclick="() => ConfirmAssignmentAsync(TransactionCategoryAssignmentScope.SelectedOnly)"
+                        disabled="@isWorking">
+                    Do nothing to other transactions
+                </button>
+                <button class="secondary-button"
+                        @onclick="CancelAssignment"
+                        disabled="@isWorking">
+                    Cancel
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
 @code {
+    private const string NewCategoryOption = "__new_category__";
+
     [Inject]
     private IBankingDataStore DataStore { get; set; } = null!;
 
     private IReadOnlyList<TransactionCategory>? categories;
+    private IReadOnlyList<TransactionCategory> EditableCategories =>
+        categories?
+            .Where(category => !category.Name.Equals(
+                TransactionCategories.Uncategorised,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray()
+        ?? [];
     private UncategorisedTransaction? uncategorisedTransaction;
     private string selectedReviewCategory = string.Empty;
     private string newCategoryName = string.Empty;
     private string editedCategoryName = string.Empty;
     private string? categoryBeingEdited;
     private string? categoryPendingDelete;
+    private BankTransaction? transactionForNewCategory;
+    private string reviewNewCategoryName = string.Empty;
+    private string? reviewNewCategoryError;
+    private BankTransaction? assignmentTransaction;
+    private string? assignmentCategory;
+    private TransactionCategoryAssignmentPreview? assignmentPreview;
     private string? actionMessage;
     private string? errorMessage;
     private bool isWorking;
@@ -302,7 +395,7 @@ else
         categoryPendingDelete = null;
     }
 
-    private async Task CategoriseRandomTransactionAsync()
+    private async Task BeginReviewAssignmentAsync()
     {
         var transaction = uncategorisedTransaction?.Transaction;
         if (transaction is null || string.IsNullOrWhiteSpace(selectedReviewCategory))
@@ -311,16 +404,89 @@ else
             return;
         }
 
-        var category = selectedReviewCategory;
+        if (selectedReviewCategory == NewCategoryOption)
+        {
+            transactionForNewCategory = transaction;
+            reviewNewCategoryName = string.Empty;
+            reviewNewCategoryError = null;
+            return;
+        }
+
+        await PrepareAssignmentAsync(transaction, selectedReviewCategory);
+    }
+
+    private async Task ContinueReviewNewCategoryAsync()
+    {
+        var transaction = transactionForNewCategory;
+        var category = reviewNewCategoryName.Trim();
+        if (transaction is null)
+        {
+            return;
+        }
+
+        if (category.Length == 0)
+        {
+            reviewNewCategoryError = "Enter a category name.";
+            return;
+        }
+
+        CancelReviewNewCategory();
+        await PrepareAssignmentAsync(transaction, category);
+    }
+
+    private void CancelReviewNewCategory()
+    {
+        transactionForNewCategory = null;
+        reviewNewCategoryName = string.Empty;
+        reviewNewCategoryError = null;
+    }
+
+    private async Task PrepareAssignmentAsync(BankTransaction transaction, string category)
+    {
         await RunActionAsync(
             async () =>
             {
-                await DataStore.SetTransactionCategoryAsync(transaction.Id, category);
-                actionMessage = $"{transaction.Description} is now {category}.";
+                assignmentPreview =
+                    await DataStore.GetTransactionCategoryAssignmentPreviewAsync(transaction.Id);
+                assignmentTransaction = transaction;
+                assignmentCategory = category;
+            });
+    }
+
+    private async Task ConfirmAssignmentAsync(TransactionCategoryAssignmentScope scope)
+    {
+        var transaction = assignmentTransaction;
+        var category = assignmentCategory;
+        if (transaction is null || category is null)
+        {
+            return;
+        }
+
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.SetTransactionCategoryAsync(transaction.Id, category, scope);
+                CancelAssignment();
+                await ReloadCategoriesAsync();
                 uncategorisedTransaction =
                     await DataStore.GetRandomUncategorisedTransactionAsync();
                 selectedReviewCategory = string.Empty;
+                actionMessage = scope switch
+                {
+                    TransactionCategoryAssignmentScope.AllMatching =>
+                        $"Categorised all matching transactions as {category}.",
+                    TransactionCategoryAssignmentScope.MatchingUncategorised =>
+                        $"Categorised this and matching uncategorised transactions as {category}.",
+                    _ => $"Categorised only this transaction as {category}."
+                };
             });
+    }
+
+    private void CancelAssignment()
+    {
+        assignmentTransaction = null;
+        assignmentCategory = null;
+        assignmentPreview = null;
     }
 
     private async Task ReloadCategoriesAsync()
@@ -371,6 +537,18 @@ else
         else if (args.Key == "Escape")
         {
             CancelCategoryRename();
+        }
+    }
+
+    private async Task HandleReviewNewCategoryKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await ContinueReviewNewCategoryAsync();
+        }
+        else if (args.Key == "Escape")
+        {
+            CancelReviewNewCategory();
         }
     }
 

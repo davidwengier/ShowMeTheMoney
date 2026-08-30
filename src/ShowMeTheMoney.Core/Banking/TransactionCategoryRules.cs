@@ -4,7 +4,7 @@ namespace ShowMeTheMoney.Core.Banking;
 
 public static class TransactionCategoryRules
 {
-    public static IReadOnlyList<TransactionCategoryRule> BuiltInRules { get; } =
+    public static IReadOnlyList<TransactionCategoryRule> Defaults { get; } =
     [
         new("SALARY", "Income", TransactionCategoryRuleMatch.MoneyInDescriptionContains),
         new("PAYROLL", "Income", TransactionCategoryRuleMatch.MoneyInDescriptionContains),
@@ -58,15 +58,24 @@ public static class TransactionCategoryRules
 
     public static string Categorize(
         BankTransaction transaction,
-        IReadOnlyDictionary<string, string> learnedRules)
+        IReadOnlyList<TransactionCategoryRule> rules)
     {
         ArgumentNullException.ThrowIfNull(transaction);
-        ArgumentNullException.ThrowIfNull(learnedRules);
+        ArgumentNullException.ThrowIfNull(rules);
 
         var merchantKey = NormalizeDescription(transaction.Description);
-        if (learnedRules.TryGetValue(merchantKey, out var learnedCategory))
+        var exactRule = rules.FirstOrDefault(rule =>
+            rule.Match is TransactionCategoryRuleMatch.ExactDescription
+                or TransactionCategoryRuleMatch.NoAutomaticMatch
+            && NormalizeDescription(rule.Pattern) == merchantKey);
+        if (exactRule?.Match == TransactionCategoryRuleMatch.NoAutomaticMatch)
         {
-            return learnedCategory;
+            return transaction.Category;
+        }
+
+        if (exactRule is not null)
+        {
+            return exactRule.Category;
         }
 
         if (!transaction.Category.Equals(
@@ -77,11 +86,15 @@ public static class TransactionCategoryRules
             return transaction.Category;
         }
 
-        return BuiltInRules
-            .FirstOrDefault(rule =>
-                (rule.Match != TransactionCategoryRuleMatch.MoneyInDescriptionContains
+        return rules
+            .Where(rule =>
+                rule.Match is TransactionCategoryRuleMatch.DescriptionContains
+                    or TransactionCategoryRuleMatch.MoneyInDescriptionContains
+                && (rule.Match != TransactionCategoryRuleMatch.MoneyInDescriptionContains
                     || transaction.Amount > 0)
                 && ContainsPattern(merchantKey, rule.Pattern))
+            .OrderByDescending(rule => NormalizeDescription(rule.Pattern).Length)
+            .FirstOrDefault()
             ?.Category
             ?? TransactionCategories.Uncategorised;
     }

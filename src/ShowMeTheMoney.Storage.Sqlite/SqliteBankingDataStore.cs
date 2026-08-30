@@ -6,6 +6,7 @@ namespace ShowMeTheMoney.Storage.Sqlite;
 
 public sealed class SqliteBankingDataStore : IBankingDataStore
 {
+    private const int CurrentSchemaVersion = 6;
     private const string EmptyInstitutionName = "No bank data imported";
     private const string EmptyDataSourceDescription = "Import a QIF file to get started";
 
@@ -260,17 +261,27 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 dataSourceDescription,
                 cancellationToken);
 
-            var learnedRules = await ReadCategoryRulesAsync(
+            var rules = await ReadCategoryRulesAsync(
                 connection,
                 transaction,
                 cancellationToken);
             foreach (var bankTransaction in transactions)
             {
-                var categorizedTransaction = bankTransaction with
+                var existingCategory = await ReadTransactionCategoryAsync(
+                    connection,
+                    transaction,
+                    bankTransaction.Id,
+                    cancellationToken);
+                var transactionToCategorize = bankTransaction with
+                {
+                    Category = existingCategory ?? NormalizeStoredCategory(
+                        bankTransaction.Category)
+                };
+                var categorizedTransaction = transactionToCategorize with
                 {
                     Category = TransactionCategoryRules.Categorize(
-                        bankTransaction,
-                        learnedRules)
+                        transactionToCategorize,
+                        rules)
                 };
                 await EnsureCategoryAsync(
                     connection,
@@ -300,6 +311,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
     public async Task SetTransactionCategoryAsync(
         string transactionId,
         string category,
+        TransactionCategoryAssignmentScope scope,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(transactionId);
@@ -328,15 +340,62 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 transaction,
                 merchantKey,
                 category.Trim(),
+                scope == TransactionCategoryAssignmentScope.SelectedOnly
+                    ? TransactionCategoryRuleMatch.NoAutomaticMatch
+                    : TransactionCategoryRuleMatch.ExactDescription,
                 cancellationToken);
             await UpdateMatchingTransactionCategoriesAsync(
                 connection,
                 transaction,
+                transactionId,
                 merchantKey,
                 category.Trim(),
+                scope,
                 cancellationToken);
 
             await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<TransactionCategoryAssignmentPreview>
+        GetTransactionCategoryAssignmentPreviewAsync(
+            string transactionId,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(transactionId);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            await using var transaction = connection.BeginTransaction();
+            var description = await ReadTransactionDescriptionAsync(
+                connection,
+                transaction,
+                transactionId,
+                cancellationToken);
+            var merchantKey = TransactionCategoryRules.NormalizeDescription(description);
+            var matches = await ReadMatchingTransactionsAsync(
+                connection,
+                transaction,
+                merchantKey,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return new TransactionCategoryAssignmentPreview(
+                transactionId,
+                description,
+                merchantKey,
+                matches.Count(match => match.Id != transactionId),
+                matches.Count(match =>
+                    match.Id != transactionId
+                    && match.Category.Equals(
+                        TransactionCategories.Uncategorised,
+                        StringComparison.OrdinalIgnoreCase)));
         }
         finally
         {
@@ -352,20 +411,21 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         {
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await EnsureSchemaAsync(connection, cancellationToken);
-            var categories = new List<TransactionCategory>();
+            var categories = new List<TransactionCategory>
+            {
+                new(TransactionCategories.Uncategorised)
+            };
             await using var command = connection.CreateCommand();
             command.CommandText =
                 """
-                SELECT name, is_system
+                SELECT name
                 FROM categories
-                ORDER BY is_system DESC, name COLLATE NOCASE;
+                ORDER BY name COLLATE NOCASE;
                 """;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
-                categories.Add(new TransactionCategory(
-                    reader.GetString(0),
-                    reader.GetBoolean(1)));
+                categories.Add(new TransactionCategory(reader.GetString(0)));
             }
 
             return categories;
@@ -389,7 +449,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             await EnsureSchemaAsync(connection, cancellationToken);
             await using var command = connection.CreateCommand();
             command.CommandText =
-                "INSERT INTO categories (name, is_system) VALUES ($name, 0);";
+                "INSERT INTO categories (name) VALUES ($name);";
             command.Parameters.AddWithValue("$name", normalizedName);
             try
             {
@@ -423,7 +483,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await EnsureSchemaAsync(connection, cancellationToken);
             await using var transaction = connection.BeginTransaction();
-            await EnsureCustomCategoryAsync(
+            await EnsureEditableCategoryAsync(
                 connection,
                 transaction,
                 currentName.Trim(),
@@ -466,7 +526,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await EnsureSchemaAsync(connection, cancellationToken);
             await using var transaction = connection.BeginTransaction();
-            await EnsureCustomCategoryAsync(
+            await EnsureEditableCategoryAsync(
                 connection,
                 transaction,
                 normalizedName,
@@ -585,7 +645,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await EnsureSchemaAsync(connection, cancellationToken);
             await using var transaction = connection.BeginTransaction();
-            var learnedRules = await ReadCategoryRulesAsync(
+            var rules = await ReadCategoryRulesAsync(
                 connection,
                 transaction,
                 cancellationToken);
@@ -600,7 +660,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             {
                 var category = TransactionCategoryRules.Categorize(
                     bankTransaction,
-                    learnedRules);
+                    rules);
                 if (category == bankTransaction.Category)
                 {
                     continue;
@@ -625,7 +685,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
     }
 
     public async Task<IReadOnlyList<TransactionCategoryRule>>
-        GetLearnedTransactionCategoryRulesAsync(
+        GetTransactionCategoryRulesAsync(
             CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -638,13 +698,85 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 transaction: null,
                 cancellationToken);
             return rules
-                .Select(rule => new TransactionCategoryRule(
-                    rule.Key,
-                    rule.Value,
-                    TransactionCategoryRuleMatch.ExactDescription))
                 .OrderBy(rule => rule.Category, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(rule => rule.Pattern, StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task SaveTransactionCategoryRuleAsync(
+        string? originalPattern,
+        TransactionCategoryRule rule,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rule.Pattern);
+        ArgumentException.ThrowIfNullOrWhiteSpace(rule.Category);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            await using var transaction = connection.BeginTransaction();
+            await EnsureCategoryAsync(
+                connection,
+                transaction,
+                rule.Category,
+                cancellationToken);
+            var normalizedPattern =
+                TransactionCategoryRules.NormalizeDescription(rule.Pattern);
+            if (!string.IsNullOrWhiteSpace(originalPattern))
+            {
+                var normalizedOriginalPattern =
+                    TransactionCategoryRules.NormalizeDescription(originalPattern);
+                if (normalizedOriginalPattern != normalizedPattern)
+                {
+                    await DeleteCategoryRuleAsync(
+                        connection,
+                        transaction,
+                        normalizedOriginalPattern,
+                        cancellationToken);
+                }
+            }
+
+            await UpsertCategoryRuleAsync(
+                connection,
+                transaction,
+                normalizedPattern,
+                rule.Category.Trim(),
+                rule.Match,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task DeleteTransactionCategoryRuleAsync(
+        string pattern,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pattern);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            await using var transaction = connection.BeginTransaction();
+            await DeleteCategoryRuleAsync(
+                connection,
+                transaction,
+                TransactionCategoryRules.NormalizeDescription(pattern),
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         finally
         {
@@ -709,8 +841,29 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             return;
         }
 
-        await using var command = connection.CreateCommand();
-        command.CommandText =
+        var schemaVersion = await ReadSchemaVersionAsync(connection, cancellationToken);
+        var hasExistingSchema = await HasExistingSchemaAsync(
+            connection,
+            cancellationToken);
+        var shouldSeedDefaults = schemaVersion != CurrentSchemaVersion;
+        if (shouldSeedDefaults && hasExistingSchema)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction: null,
+                """
+                DROP TABLE IF EXISTS transactions;
+                DROP TABLE IF EXISTS accounts;
+                DROP TABLE IF EXISTS metadata;
+                DROP TABLE IF EXISTS category_rules;
+                DROP TABLE IF EXISTS categories;
+                """,
+                cancellationToken);
+        }
+
+        await ExecuteAsync(
+            connection,
+            transaction: null,
             """
             CREATE TABLE IF NOT EXISTS metadata (
                 key TEXT NOT NULL PRIMARY KEY,
@@ -746,75 +899,27 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             CREATE INDEX IF NOT EXISTS ix_transactions_category
             ON transactions (category);
 
+            CREATE TABLE IF NOT EXISTS categories (
+                name TEXT NOT NULL PRIMARY KEY COLLATE NOCASE
+            );
+
             CREATE TABLE IF NOT EXISTS category_rules (
                 merchant_key TEXT NOT NULL PRIMARY KEY,
-                category TEXT NOT NULL
+                category TEXT NOT NULL,
+                match_type TEXT NOT NULL
             );
-
-            CREATE TABLE IF NOT EXISTS categories (
-                name TEXT NOT NULL PRIMARY KEY COLLATE NOCASE,
-                is_system INTEGER NOT NULL
-            );
-            """;
-        await command.ExecuteNonQueryAsync(cancellationToken);
-
-        var schemaVersion = await ReadSchemaVersionAsync(connection, cancellationToken);
-        if (schemaVersion < 3)
-        {
-            await ExecuteAsync(
-                connection,
-                transaction: null,
-                """
-                UPDATE transactions
-                SET category = 'Uncategorised'
-                WHERE category COLLATE NOCASE = 'Other';
-
-                DELETE FROM category_rules
-                WHERE category COLLATE NOCASE = 'Other';
-                """,
-                cancellationToken);
-        }
-
-        if (!await ColumnExistsAsync(
-                connection,
-                "transactions",
-                "running_balance",
-                cancellationToken))
-        {
-            await ExecuteAsync(
-                connection,
-                transaction: null,
-                "ALTER TABLE transactions ADD COLUMN running_balance TEXT NULL;",
-                cancellationToken);
-            var accounts = await ReadAccountsAsync(connection, cancellationToken);
-            foreach (var account in accounts)
-            {
-                await RebuildRunningBalancesAsync(
-                    connection,
-                    transaction: null,
-                    account.Id,
-                    cancellationToken);
-            }
-        }
-
-        if (schemaVersion < 4)
-        {
-            await ExecuteAsync(
-                connection,
-                transaction: null,
-                "PRAGMA user_version = 4;",
-                cancellationToken);
-        }
-
-        if (schemaVersion < 5)
+            """,
+            cancellationToken);
+        if (shouldSeedDefaults)
         {
             await SeedCategoriesAsync(connection, cancellationToken);
-            await ExecuteAsync(
-                connection,
-                transaction: null,
-                "PRAGMA user_version = 5;",
-                cancellationToken);
+            await SeedCategoryRulesAsync(connection, cancellationToken);
         }
+        await ExecuteAsync(
+            connection,
+            transaction: null,
+            $"PRAGMA user_version = {CurrentSchemaVersion};",
+            cancellationToken);
 
         _schemaInitialized = true;
     }
@@ -823,34 +928,45 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
-        foreach (var category in TransactionCategories.All)
+        if (await ReadTableCountAsync(connection, "categories", cancellationToken) != 0)
+        {
+            return;
+        }
+
+        foreach (var category in TransactionCategories.Defaults
+                     .Where(category => !category.Equals(
+                         TransactionCategories.Uncategorised,
+                         StringComparison.OrdinalIgnoreCase)))
         {
             await using var command = connection.CreateCommand();
-            command.CommandText =
-                """
-                INSERT INTO categories (name, is_system)
-                VALUES ($name, 1)
-                ON CONFLICT(name) DO UPDATE SET is_system = 1;
-                """;
+            command.CommandText = "INSERT INTO categories (name) VALUES ($name);";
             command.Parameters.AddWithValue("$name", category);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
 
-        await ExecuteAsync(
-            connection,
-            transaction: null,
-            """
-            INSERT OR IGNORE INTO categories (name, is_system)
-            SELECT DISTINCT category, 0
-            FROM transactions
-            WHERE TRIM(category) <> '';
+    private static async Task SeedCategoryRulesAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        if (await ReadTableCountAsync(connection, "category_rules", cancellationToken) != 0)
+        {
+            return;
+        }
 
-            INSERT OR IGNORE INTO categories (name, is_system)
-            SELECT DISTINCT category, 0
-            FROM category_rules
-            WHERE TRIM(category) <> '';
-            """,
-            cancellationToken);
+        await using var transaction = connection.BeginTransaction();
+        foreach (var rule in TransactionCategoryRules.Defaults)
+        {
+            await UpsertCategoryRuleAsync(
+                connection,
+                transaction,
+                TransactionCategoryRules.NormalizeDescription(rule.Pattern),
+                rule.Category,
+                rule.Match,
+                cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
     }
 
     private static string ValidateCategoryName(string name)
@@ -862,6 +978,15 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         {
             throw new InvalidOperationException(
                 $"'{normalizedName}' cannot be used as a category name.");
+        }
+
+        if (normalizedName.Equals(
+                TransactionCategories.Uncategorised,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"'{TransactionCategories.Uncategorised}' is reserved for transactions "
+                + "that do not have a category.");
         }
 
         return normalizedName;
@@ -879,16 +1004,23 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         string name,
         CancellationToken cancellationToken)
     {
+        if (name.Trim().Equals(
+                TransactionCategories.Uncategorised,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         var normalizedName = ValidateCategoryName(name);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
-            "INSERT OR IGNORE INTO categories (name, is_system) VALUES ($name, 0);";
+            "INSERT OR IGNORE INTO categories (name) VALUES ($name);";
         command.Parameters.AddWithValue("$name", normalizedName);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    private static async Task EnsureCustomCategoryAsync(
+    private static async Task EnsureEditableCategoryAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         string name,
@@ -897,18 +1029,12 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
-            "SELECT is_system FROM categories WHERE name = $name COLLATE NOCASE;";
+            "SELECT EXISTS(SELECT 1 FROM categories WHERE name = $name COLLATE NOCASE);";
         command.Parameters.AddWithValue("$name", name);
         var value = await command.ExecuteScalarAsync(cancellationToken);
-        if (value is null)
+        if (!Convert.ToBoolean(value, CultureInfo.InvariantCulture))
         {
             throw new InvalidOperationException($"Category '{name}' does not exist.");
-        }
-
-        if (Convert.ToBoolean(value, CultureInfo.InvariantCulture))
-        {
-            throw new InvalidOperationException(
-                $"Built-in category '{name}' cannot be modified.");
         }
     }
 
@@ -980,24 +1106,36 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             CultureInfo.InvariantCulture);
     }
 
-    private static async Task<bool> ColumnExistsAsync(
+    private static async Task<bool> HasExistingSchemaAsync(
         SqliteConnection connection,
-        string tableName,
-        string columnName,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
-        command.CommandText = $"PRAGMA table_info({tableName});";
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-        while (await reader.ReadAsync(cancellationToken))
-        {
-            if (reader.GetString(1).Equals(columnName, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
+        command.CommandText =
+            """
+            SELECT EXISTS(
+                SELECT 1
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN ('metadata', 'accounts', 'transactions',
+                               'categories', 'category_rules')
+            );
+            """;
+        return Convert.ToBoolean(
+            await command.ExecuteScalarAsync(cancellationToken),
+            CultureInfo.InvariantCulture);
+    }
 
-        return false;
+    private static async Task<int> ReadTableCountAsync(
+        SqliteConnection connection,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {tableName};";
+        return Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken),
+            CultureInfo.InvariantCulture);
     }
 
     private static async Task<int> ReadTransactionCountAsync(
@@ -1118,20 +1256,24 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         }
     }
 
-    private static async Task<IReadOnlyDictionary<string, string>> ReadCategoryRulesAsync(
+    private static async Task<IReadOnlyList<TransactionCategoryRule>> ReadCategoryRulesAsync(
         SqliteConnection connection,
         SqliteTransaction? transaction,
         CancellationToken cancellationToken)
     {
-        var rules = new Dictionary<string, string>(StringComparer.Ordinal);
+        var rules = new List<TransactionCategoryRule>();
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT merchant_key, category FROM category_rules;";
+        command.CommandText =
+            "SELECT merchant_key, category, match_type FROM category_rules;";
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
 
         while (await reader.ReadAsync(cancellationToken))
         {
-            rules.Add(reader.GetString(0), reader.GetString(1));
+            rules.Add(new TransactionCategoryRule(
+                reader.GetString(0),
+                reader.GetString(1),
+                Enum.Parse<TransactionCategoryRuleMatch>(reader.GetString(2))));
         }
 
         return rules;
@@ -1151,6 +1293,19 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         return description
             ?? throw new InvalidOperationException(
                 $"Transaction '{transactionId}' does not exist.");
+    }
+
+    private static async Task<string?> ReadTransactionCategoryAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string transactionId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT category FROM transactions WHERE id = $id;";
+        command.Parameters.AddWithValue("$id", transactionId);
+        return await command.ExecuteScalarAsync(cancellationToken) as string;
     }
 
     private static async Task<IReadOnlyList<BankTransaction>> ReadTransactionsAsync(
@@ -1196,52 +1351,98 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         SqliteTransaction transaction,
         string merchantKey,
         string category,
+        TransactionCategoryRuleMatch match,
         CancellationToken cancellationToken)
     {
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText =
             """
-            INSERT INTO category_rules (merchant_key, category)
-            VALUES ($merchant_key, $category)
-            ON CONFLICT(merchant_key) DO UPDATE SET category = excluded.category;
+            INSERT INTO category_rules (merchant_key, category, match_type)
+            VALUES ($merchant_key, $category, $match_type)
+            ON CONFLICT(merchant_key) DO UPDATE SET
+                category = excluded.category,
+                match_type = excluded.match_type;
             """;
         command.Parameters.AddWithValue("$merchant_key", merchantKey);
         command.Parameters.AddWithValue("$category", category);
+        command.Parameters.AddWithValue("$match_type", match.ToString());
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task DeleteCategoryRuleAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string merchantKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            "DELETE FROM category_rules WHERE merchant_key = $merchant_key;";
+        command.Parameters.AddWithValue("$merchant_key", merchantKey);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task UpdateMatchingTransactionCategoriesAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
+        string selectedTransactionId,
         string merchantKey,
         string category,
+        TransactionCategoryAssignmentScope scope,
         CancellationToken cancellationToken)
     {
-        var matches = new List<string>();
+        var matches = await ReadMatchingTransactionsAsync(
+            connection,
+            transaction,
+            merchantKey,
+            cancellationToken);
+        foreach (var match in matches)
+        {
+            var shouldUpdate = match.Id == selectedTransactionId
+                || scope == TransactionCategoryAssignmentScope.AllMatching
+                || scope == TransactionCategoryAssignmentScope.MatchingUncategorised
+                    && match.Category.Equals(
+                        TransactionCategories.Uncategorised,
+                        StringComparison.OrdinalIgnoreCase);
+            if (!shouldUpdate)
+            {
+                continue;
+            }
+
+            await UpdateTransactionCategoryAsync(
+                connection,
+                transaction,
+                match.Id,
+                category,
+                cancellationToken);
+        }
+    }
+
+    private static async Task<IReadOnlyList<(string Id, string Category)>>
+        ReadMatchingTransactionsAsync(
+            SqliteConnection connection,
+            SqliteTransaction transaction,
+            string merchantKey,
+            CancellationToken cancellationToken)
+    {
+        var matches = new List<(string Id, string Category)>();
         await using (var command = connection.CreateCommand())
         {
             command.Transaction = transaction;
-            command.CommandText = "SELECT id, description FROM transactions;";
+            command.CommandText = "SELECT id, description, category FROM transactions;";
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
                 if (TransactionCategoryRules.NormalizeDescription(reader.GetString(1)) == merchantKey)
                 {
-                    matches.Add(reader.GetString(0));
+                    matches.Add((reader.GetString(0), reader.GetString(2)));
                 }
             }
         }
 
-        foreach (var matchingTransactionId in matches)
-        {
-            await UpdateTransactionCategoryAsync(
-                connection,
-                transaction,
-                matchingTransactionId,
-                category,
-                cancellationToken);
-        }
+        return matches;
     }
 
     private static async Task UpdateTransactionCategoryAsync(

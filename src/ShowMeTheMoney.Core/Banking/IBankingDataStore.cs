@@ -15,6 +15,11 @@ public interface IBankingDataStore : IBankingDataSource
     Task SetTransactionCategoryAsync(
         string transactionId,
         string category,
+        TransactionCategoryAssignmentScope scope,
+        CancellationToken cancellationToken = default);
+
+    Task<TransactionCategoryAssignmentPreview> GetTransactionCategoryAssignmentPreviewAsync(
+        string transactionId,
         CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<TransactionCategory>> GetTransactionCategoriesAsync(
@@ -46,7 +51,16 @@ public interface IBankingDataStore : IBankingDataSource
         int pageSize,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<TransactionCategoryRule>> GetLearnedTransactionCategoryRulesAsync(
+    Task<IReadOnlyList<TransactionCategoryRule>> GetTransactionCategoryRulesAsync(
+        CancellationToken cancellationToken = default);
+
+    Task SaveTransactionCategoryRuleAsync(
+        string? originalPattern,
+        TransactionCategoryRule rule,
+        CancellationToken cancellationToken = default);
+
+    Task DeleteTransactionCategoryRuleAsync(
+        string pattern,
         CancellationToken cancellationToken = default);
 
     Task ImportTransactionsAsync(

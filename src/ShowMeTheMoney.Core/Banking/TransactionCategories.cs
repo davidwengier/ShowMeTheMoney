@@ -4,7 +4,7 @@ public static class TransactionCategories
 {
     public const string Uncategorised = "Uncategorised";
 
-    public static IReadOnlyList<string> All { get; } =
+    public static IReadOnlyList<string> Defaults { get; } =
     [
         Uncategorised,
         "Dining",

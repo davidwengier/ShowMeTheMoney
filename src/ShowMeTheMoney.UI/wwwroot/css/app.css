@@ -677,6 +677,25 @@ input:disabled {
     font-size: 0.82rem;
 }
 
+.editable-rules-table .rules-header,
+.editable-rules-table .rule-row {
+    grid-template-columns:
+        minmax(12rem, 1.3fr)
+        minmax(9rem, 0.8fr)
+        minmax(13rem, 1fr)
+        auto;
+}
+
+.rule-row input,
+.rule-row select {
+    width: 100%;
+}
+
+.rule-row-actions {
+    display: flex;
+    gap: 0.55rem;
+}
+
 .rules-empty {
     display: flex;
     min-height: 10rem;
@@ -788,7 +807,7 @@ input:disabled {
 
 .category-row {
     display: grid;
-    grid-template-columns: minmax(12rem, 1fr) 6rem minmax(16rem, auto);
+    grid-template-columns: minmax(12rem, 1fr) minmax(16rem, auto);
     gap: 1rem;
     align-items: center;
     padding: 0.85rem 1.2rem;
@@ -861,6 +880,16 @@ input:disabled {
     justify-content: flex-end;
     gap: 0.65rem;
     margin-top: 1.2rem;
+}
+
+.assignment-actions {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 1.2rem;
+}
+
+.assignment-actions button {
+    width: 100%;
 }
 
 .loading-card,

@@ -75,11 +75,14 @@ it with VeloPack, and publishes a GitHub release.
   types listed in `QifParser`. Transaction IDs are deterministic hashes of the
   parsed data, then prefixed with the selected account ID in the UI. Preserve
   this identity scheme so re-importing updates rows instead of duplicating them.
-- `Uncategorised` is the canonical empty category. Built-in category names are
-  protected; custom category rename/delete operations must also update affected
-  transactions and learned rules. Manually categorizing a transaction creates
-  or updates an exact normalized-description rule and applies it to matching
-  transactions.
+- `Uncategorised` is the canonical empty transaction state and is not stored as
+  an editable category. Default categories and rules are seeded only for an
+  empty database; afterward every category and rule is database-driven and
+  editable. Category rename/delete operations must update affected transactions
+  and rules atomically. Manual categorization previews matching payee counts and
+  lets the user update only the selected transaction, matching uncategorised
+  transactions, or all exact matches. Selected-only changes create a
+  `NoAutomaticMatch` exact rule so broader rules cannot overwrite them.
 - Razor pages keep operation state explicitly (`isWorking`, loading flags,
   action/error messages), disable conflicting controls while work is running,
   and surface `InvalidOperationException` messages from expected store

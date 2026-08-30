@@ -269,8 +269,8 @@ else
             <p class="eyebrow">Custom category</p>
             <h2 id="new-category-title">Create a category</h2>
             <p class="muted">
-                Categorise <strong>@transactionForNewCategory.Description</strong>
-                and matching transactions as:
+                Create a category for
+                <strong>@transactionForNewCategory.Description</strong>:
             </p>
             <label>
                 <span>Category name</span>
@@ -293,7 +293,52 @@ else
                 <button class="primary-button"
                         @onclick="SaveNewCategoryAsync"
                         disabled="@isWorking">
-                    Create category
+                    Continue
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
+@if (assignmentTransaction is not null
+    && assignmentCategory is not null
+    && assignmentPreview is not null)
+{
+    <div class="dialog-backdrop">
+        <section class="category-dialog assignment-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="assignment-title">
+            <p class="eyebrow">Apply category</p>
+            <h2 id="assignment-title">@assignmentCategory</h2>
+            <p class="muted">
+                <strong>@assignmentTransaction.Description</strong> has
+                @assignmentPreview.OtherMatchingCount other matching
+                @(assignmentPreview.OtherMatchingCount == 1 ? "transaction" : "transactions").
+                @assignmentPreview.OtherUncategorisedCount of those
+                @(assignmentPreview.OtherUncategorisedCount == 1 ? "is" : "are")
+                uncategorised.
+            </p>
+            <div class="assignment-actions">
+                <button class="primary-button"
+                        @onclick="() => ConfirmAssignmentAsync(TransactionCategoryAssignmentScope.AllMatching)"
+                        disabled="@isWorking">
+                    Update all @(assignmentPreview.OtherMatchingCount + 1) transactions
+                </button>
+                <button class="secondary-button"
+                        @onclick="() => ConfirmAssignmentAsync(TransactionCategoryAssignmentScope.MatchingUncategorised)"
+                        disabled="@(isWorking || assignmentPreview.OtherUncategorisedCount == 0)">
+                    Update this and @assignmentPreview.OtherUncategorisedCount uncategorised
+                </button>
+                <button class="secondary-button"
+                        @onclick="() => ConfirmAssignmentAsync(TransactionCategoryAssignmentScope.SelectedOnly)"
+                        disabled="@isWorking">
+                    Do nothing to other transactions
+                </button>
+                <button class="secondary-button"
+                        @onclick="CancelAssignment"
+                        disabled="@isWorking">
+                    Cancel
                 </button>
             </div>
         </section>
@@ -332,6 +377,9 @@ else
     private bool isInstallingUpdate;
     private bool isEditingAccount;
     private BankTransaction? transactionForNewCategory;
+    private BankTransaction? assignmentTransaction;
+    private string? assignmentCategory;
+    private TransactionCategoryAssignmentPreview? assignmentPreview;
     private string newCategoryName = string.Empty;
     private string? newCategoryError;
     private IReadOnlyList<TransactionLedgerEntry> transactionPage = [];
@@ -602,10 +650,10 @@ else
             return;
         }
 
-        await SaveTransactionCategoryAsync(transaction, category);
+        await PrepareAssignmentAsync(transaction, category);
     }
 
-    private async Task<bool> SaveTransactionCategoryAsync(
+    private async Task PrepareAssignmentAsync(
         BankTransaction transaction,
         string category)
     {
@@ -615,16 +663,14 @@ else
 
         try
         {
-            await DataStore.SetTransactionCategoryAsync(transaction.Id, category);
-            await LoadAsync(transaction.AccountId, resetTransactionPage: false);
-            actionMessage =
-                $"{transaction.Description} and matching transactions are now {category}.";
-            return true;
+            assignmentPreview =
+                await DataStore.GetTransactionCategoryAssignmentPreviewAsync(transaction.Id);
+            assignmentTransaction = transaction;
+            assignmentCategory = category;
         }
         catch (InvalidOperationException exception)
         {
             errorMessage = exception.Message;
-            return false;
         }
         finally
         {
@@ -659,10 +705,8 @@ else
             return;
         }
 
-        if (await SaveTransactionCategoryAsync(transaction, category))
-        {
-            CancelNewCategory();
-        }
+        CancelNewCategory();
+        await PrepareAssignmentAsync(transaction, category);
     }
 
     private void CancelNewCategory()
@@ -670,6 +714,49 @@ else
         transactionForNewCategory = null;
         newCategoryName = string.Empty;
         newCategoryError = null;
+    }
+
+    private async Task ConfirmAssignmentAsync(TransactionCategoryAssignmentScope scope)
+    {
+        var transaction = assignmentTransaction;
+        var category = assignmentCategory;
+        if (transaction is null || category is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+        try
+        {
+            await DataStore.SetTransactionCategoryAsync(transaction.Id, category, scope);
+            CancelAssignment();
+            await LoadAsync(transaction.AccountId, resetTransactionPage: false);
+            actionMessage = scope switch
+            {
+                TransactionCategoryAssignmentScope.AllMatching =>
+                    $"Categorised all matching transactions as {category}.",
+                TransactionCategoryAssignmentScope.MatchingUncategorised =>
+                    $"Categorised this and matching uncategorised transactions as {category}.",
+                _ => $"Categorised only this transaction as {category}."
+            };
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private void CancelAssignment()
+    {
+        assignmentTransaction = null;
+        assignmentCategory = null;
+        assignmentPreview = null;
     }
 
     private async Task HandleNewCategoryKeyDown(KeyboardEventArgs args)

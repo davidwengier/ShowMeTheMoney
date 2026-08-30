@@ -7,17 +7,22 @@
         <p class="eyebrow">How transactions are classified</p>
         <h1>Category rules</h1>
         <p class="hero-copy">
-            Learned rules come from category changes you make. Built-in rules
-            provide initial suggestions for common transaction descriptions.
+            Rules are checked in order of specificity. Exact rules take priority
+            over description matches, while no automatic match keeps a payee manual.
         </p>
     </div>
 </section>
+
+@if (actionMessage is not null)
+{
+    <div class="message import-message">@actionMessage</div>
+}
 
 @if (errorMessage is not null)
 {
     <div class="message error-message">@errorMessage</div>
 }
-else if (learnedRules is null)
+else if (rules is null || categories is null)
 {
     <div class="loading-card">Loading category rules...</div>
 }
@@ -27,62 +32,71 @@ else
         <article class="panel rules-panel">
             <div class="panel-heading">
                 <div>
-                    <p class="eyebrow">Your corrections</p>
-                    <h2>Learned rules</h2>
+                    <p class="eyebrow">Automatic categorisation</p>
+                    <h2>Rules</h2>
                 </div>
-                <span>@learnedRules.Count</span>
+                <button class="primary-button compact-button"
+                        @onclick="AddRule"
+                        disabled="@(isWorking || EditableCategories.Count == 0)">
+                    Add rule
+                </button>
             </div>
 
-            @if (learnedRules.Count == 0)
+            @if (rules.Count == 0)
             {
                 <div class="rules-empty">
-                    <strong>No learned rules yet</strong>
-                    <span>Change a transaction category to teach the app a rule.</span>
+                    <strong>No category rules</strong>
+                    <span>Add one here or categorise a transaction to create an exact rule.</span>
                 </div>
             }
             else
             {
-                <div class="rules-table">
+                <div class="rules-table editable-rules-table">
                     <div class="rules-header">
-                        <span>Merchant description</span>
+                        <span>Pattern</span>
                         <span>Category</span>
-                        <span>Matches</span>
+                        <span>Match type</span>
+                        <span>Actions</span>
                     </div>
-                    @foreach (var rule in learnedRules)
+                    @foreach (var rule in rules)
                     {
                         <div class="rule-row">
-                            <code>@rule.Pattern</code>
-                            <strong>@rule.Category</strong>
-                            <span>@DescribeMatch(rule.Match)</span>
+                            <input aria-label="Rule pattern"
+                                   @bind="rule.Pattern"
+                                   @bind:event="oninput"
+                                   disabled="@isWorking" />
+                            <select aria-label="Rule category"
+                                    @bind="rule.Category"
+                                    disabled="@isWorking">
+                                @foreach (var category in EditableCategories)
+                                {
+                                    <option value="@category.Name">@category.Name</option>
+                                }
+                            </select>
+                            <select aria-label="Rule match type"
+                                    @bind="rule.Match"
+                                    disabled="@isWorking">
+                                @foreach (var match in MatchTypes)
+                                {
+                                    <option value="@match">@DescribeMatch(match)</option>
+                                }
+                            </select>
+                            <div class="rule-row-actions">
+                                <button class="primary-button compact-button"
+                                        @onclick="() => SaveRuleAsync(rule)"
+                                        disabled="@isWorking">
+                                    Save
+                                </button>
+                                <button class="secondary-button compact-button danger-button"
+                                        @onclick="() => DeleteRuleAsync(rule)"
+                                        disabled="@isWorking">
+                                    Delete
+                                </button>
+                            </div>
                         </div>
                     }
                 </div>
             }
-        </article>
-
-        <article class="panel rules-panel">
-            <div class="panel-heading">
-                <div>
-                    <p class="eyebrow">Included with the app</p>
-                    <h2>Built-in rules</h2>
-                </div>
-                <span>@TransactionCategoryRules.BuiltInRules.Count</span>
-            </div>
-            <div class="rules-table">
-                <div class="rules-header">
-                    <span>Description contains</span>
-                    <span>Category</span>
-                    <span>Matches</span>
-                </div>
-                @foreach (var rule in TransactionCategoryRules.BuiltInRules)
-                {
-                    <div class="rule-row">
-                        <code>@rule.Pattern</code>
-                        <strong>@rule.Category</strong>
-                        <span>@DescribeMatch(rule.Match)</span>
-                    </div>
-                }
-            </div>
         </article>
     </section>
 }
@@ -91,14 +105,34 @@ else
     [Inject]
     private IBankingDataStore DataStore { get; set; } = null!;
 
-    private IReadOnlyList<TransactionCategoryRule>? learnedRules;
+    private static IReadOnlyList<TransactionCategoryRuleMatch> MatchTypes { get; } =
+        Enum.GetValues<TransactionCategoryRuleMatch>();
+
+    private List<EditableRule>? rules;
+    private IReadOnlyList<TransactionCategory>? categories;
+    private IReadOnlyList<TransactionCategory> EditableCategories =>
+        categories?
+            .Where(category => !category.Name.Equals(
+                TransactionCategories.Uncategorised,
+                StringComparison.OrdinalIgnoreCase))
+            .ToArray()
+        ?? [];
+    private string? actionMessage;
     private string? errorMessage;
+    private bool isWorking;
 
     protected override async Task OnInitializedAsync()
     {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
         try
         {
-            learnedRules = await DataStore.GetLearnedTransactionCategoryRulesAsync();
+            var storedRules = await DataStore.GetTransactionCategoryRulesAsync();
+            categories = await DataStore.GetTransactionCategoriesAsync();
+            rules = storedRules.Select(rule => new EditableRule(rule)).ToList();
         }
         catch (Exception exception)
         {
@@ -106,11 +140,120 @@ else
         }
     }
 
+    private void AddRule()
+    {
+        var category = EditableCategories.FirstOrDefault()?.Name;
+        if (category is null)
+        {
+            errorMessage = "Add a category before creating a rule.";
+            return;
+        }
+
+        rules!.Insert(
+            0,
+            new EditableRule(
+                originalPattern: null,
+                pattern: string.Empty,
+                category: category,
+                match: TransactionCategoryRuleMatch.DescriptionContains));
+        actionMessage = null;
+        errorMessage = null;
+    }
+
+    private async Task SaveRuleAsync(EditableRule editableRule)
+    {
+        if (string.IsNullOrWhiteSpace(editableRule.Pattern))
+        {
+            errorMessage = "Enter a rule pattern.";
+            return;
+        }
+
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.SaveTransactionCategoryRuleAsync(
+                    editableRule.OriginalPattern,
+                    new TransactionCategoryRule(
+                        editableRule.Pattern,
+                        editableRule.Category,
+                        editableRule.Match));
+                actionMessage = $"Saved the {editableRule.Pattern.Trim()} rule.";
+                await LoadAsync();
+            });
+    }
+
+    private async Task DeleteRuleAsync(EditableRule editableRule)
+    {
+        var pattern = editableRule.OriginalPattern ?? editableRule.Pattern;
+        if (string.IsNullOrWhiteSpace(pattern))
+        {
+            rules!.Remove(editableRule);
+            return;
+        }
+
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.DeleteTransactionCategoryRuleAsync(pattern);
+                actionMessage = $"Deleted the {pattern} rule.";
+                await LoadAsync();
+            });
+    }
+
+    private async Task RunActionAsync(Func<Task> action)
+    {
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+        try
+        {
+            await action();
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
     private static string DescribeMatch(TransactionCategoryRuleMatch match) =>
         match switch
         {
-            TransactionCategoryRuleMatch.ExactDescription => "Exact normalized description",
-            TransactionCategoryRuleMatch.MoneyInDescriptionContains => "Money in only",
-            _ => "Any transaction"
+            TransactionCategoryRuleMatch.NoAutomaticMatch => "No automatic match",
+            TransactionCategoryRuleMatch.ExactDescription => "Exact description",
+            TransactionCategoryRuleMatch.MoneyInDescriptionContains =>
+                "Money in description contains",
+            _ => "Description contains"
         };
+
+    private sealed class EditableRule
+    {
+        public EditableRule(TransactionCategoryRule rule)
+            : this(rule.Pattern, rule.Pattern, rule.Category, rule.Match)
+        {
+        }
+
+        public EditableRule(
+            string? originalPattern,
+            string pattern,
+            string category,
+            TransactionCategoryRuleMatch match)
+        {
+            OriginalPattern = originalPattern;
+            Pattern = pattern;
+            Category = category;
+            Match = match;
+        }
+
+        public string? OriginalPattern { get; }
+
+        public string Pattern { get; set; }
+
+        public string Category { get; set; }
+
+        public TransactionCategoryRuleMatch Match { get; set; }
+    }
 }
