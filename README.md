@@ -55,5 +55,6 @@ dotnet vpk pack --packId DavidWengier.ShowMeTheMoney --packVersion 0.1.0 `
   --packDir .\artifacts\publish --mainExe ShowMeTheMoney.exe `
   --packTitle "Show Me The Money" --packAuthors "David Wengier" `
   --outputDir .\artifacts\releases --runtime win-x64 `
+  --icon .\src\ShowMeTheMoney.Desktop\Assets\ShowMeTheMoney.ico `
   --framework "net10.0-x64-desktop,webview2" --noPortable
 ```

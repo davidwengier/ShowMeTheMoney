@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Show Me The Money">
+  <defs>
+    <linearGradient id="background" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#153c30"/>
+      <stop offset="1" stop-color="#07110f"/>
+    </linearGradient>
+    <linearGradient id="coin" x1="77" y1="58" x2="183" y2="193" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#76f2b8"/>
+      <stop offset="1" stop-color="#31c987"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="54" fill="url(#background)"/>
+  <rect x="9" y="9" width="238" height="238" rx="53" fill="none" stroke="#2d5546" stroke-width="2"/>
+  <circle cx="128" cy="128" r="70" fill="url(#coin)"/>
+  <path d="M92 150c12 11 23 16 38 16 18 0 30-8 30-20 0-13-11-17-31-21-22-5-34-13-34-31 0-17 13-29 33-31V48h13v15c13 2 24 7 34 15l-13 18c-10-8-20-12-32-12-15 0-24 6-24 16 0 10 9 14 29 19 24 6 37 14 37 34 0 18-13 31-32 34v17h-13v-16c-19-2-34-9-47-21z" fill="#07110f"/>
+  <path d="M42 190l36-34 27 20 48-53 22 18 39-47" fill="none" stroke="#f2f8f5" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M190 94h24v24" fill="none" stroke="#f2f8f5" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -27,14 +27,20 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <ApplicationIcon>Assets\ShowMeTheMoney.ico</ApplicationIcon>
     <GenerateEmbeddedFilesManifest>true</GenerateEmbeddedFilesManifest>
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Assets\ShowMeTheMoney.ico">
+      <LogicalName>ShowMeTheMoney.Desktop.Assets.ShowMeTheMoney.ico</LogicalName>
+    </EmbeddedResource>
     <EmbeddedResource Include="wwwroot\index.html"
                       Link="wwwroot\index.html" />
     <EmbeddedResource Include="..\ShowMeTheMoney.UI\wwwroot\css\app.css"
                       Link="wwwroot\_content\ShowMeTheMoney.UI\css\app.css" />
+    <EmbeddedResource Include="..\ShowMeTheMoney.UI\wwwroot\images\app-icon.svg"
+                      Link="wwwroot\_content\ShowMeTheMoney.UI\images\app-icon.svg" />
     <EmbeddedResource Include="$(PkgMicrosoft_AspNetCore_Components_WebView)\staticwebassets\blazor.modules.json"
                       Link="wwwroot\_framework\blazor.modules.json" />
     <EmbeddedResource Include="$(PkgMicrosoft_AspNetCore_Components_WebView)\staticwebassets\blazor.webview.js"

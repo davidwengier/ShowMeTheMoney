@@ -59,6 +59,7 @@ jobs:
           --packAuthors "David Wengier"
           --outputDir .\artifacts\releases
           --runtime win-x64
+          --icon .\src\ShowMeTheMoney.Desktop\Assets\ShowMeTheMoney.ico
           --framework "net10.0-x64-desktop,webview2"
           --noPortable
 
