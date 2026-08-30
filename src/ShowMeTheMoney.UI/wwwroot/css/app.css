@@ -530,6 +530,29 @@ input:disabled {
     color: #f2f8f5;
 }
 
+.transaction-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.85rem 1.2rem;
+    border-top: 1px solid #1d332c;
+    color: #91a69e;
+    font-size: 0.82rem;
+}
+
+.transaction-pagination > div {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.transaction-pagination strong {
+    min-width: 7rem;
+    color: #b9d7cc;
+    text-align: center;
+}
+
 .sankey-grid {
     display: grid;
     gap: 1rem;
@@ -775,6 +798,15 @@ input:disabled {
     .transaction-heading-actions {
         align-items: flex-end;
         flex-direction: column;
+    }
+
+    .transaction-pagination {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .transaction-pagination > div {
+        justify-content: space-between;
     }
 
     .account-settings-form {

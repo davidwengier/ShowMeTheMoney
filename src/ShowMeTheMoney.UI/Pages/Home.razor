@@ -175,7 +175,7 @@ else
                         </div>
                     </div>
 
-                    @if (SelectedTransactions.Count == 0)
+                    @if (selectedLedger.Count == 0)
                     {
                         <div class="transaction-empty-state">
                             <strong>No transactions imported</strong>
@@ -192,7 +192,7 @@ else
                             <span>Balance</span>
                         </div>
                         <div class="transaction-list">
-                            @foreach (var entry in SelectedLedger)
+                            @foreach (var entry in visibleLedger)
                             {
                                 var transaction = entry.Transaction;
                                 <div class="transaction-row">
@@ -225,6 +225,27 @@ else
                                     </strong>
                                 </div>
                             }
+                        </div>
+                        <div class="transaction-pagination">
+                            <span>
+                                Showing @TransactionPageStart-@TransactionPageEnd
+                                of @selectedLedger.Count
+                            </span>
+                            <div>
+                                <button class="secondary-button compact-button"
+                                        @onclick="ShowPreviousTransactionPage"
+                                        disabled="@(isWorking || transactionPageIndex == 0)">
+                                    Previous
+                                </button>
+                                <strong>
+                                    Page @(transactionPageIndex + 1) of @TransactionPageCount
+                                </strong>
+                                <button class="secondary-button compact-button"
+                                        @onclick="ShowNextTransactionPage"
+                                        disabled="@(isWorking || transactionPageIndex >= TransactionPageCount - 1)">
+                                    Next
+                                </button>
+                            </div>
                         </div>
                     }
                 </article>
@@ -281,6 +302,7 @@ else
 
 @code {
     private const string NewCategoryOption = "__new_category__";
+    private const int TransactionPageSize = 50;
 
     [Inject]
     private IBankingDataSource DataSource { get; set; } = null!;
@@ -312,19 +334,21 @@ else
     private BankTransaction? transactionForNewCategory;
     private string newCategoryName = string.Empty;
     private string? newCategoryError;
+    private IReadOnlyList<TransactionLedgerEntry> selectedLedger = [];
+    private IReadOnlyList<TransactionLedgerEntry> visibleLedger = [];
+    private int transactionPageIndex;
 
     private BankAccount? SelectedAccount =>
         snapshot?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
 
-    private IReadOnlyList<BankTransaction> SelectedTransactions =>
-        snapshot?.Transactions
-            .Where(transaction => transaction.AccountId == selectedAccountId)
-            .OrderByDescending(transaction => transaction.PostedOn)
-            .ToArray()
-        ?? [];
+    private int TransactionPageCount =>
+        Math.Max(1, (selectedLedger.Count + TransactionPageSize - 1) / TransactionPageSize);
 
-    private IReadOnlyList<TransactionLedgerEntry> SelectedLedger =>
-        TransactionLedger.Build(SelectedTransactions, SelectedAccount?.Balance);
+    private int TransactionPageStart =>
+        selectedLedger.Count == 0 ? 0 : (transactionPageIndex * TransactionPageSize) + 1;
+
+    private int TransactionPageEnd =>
+        Math.Min(selectedLedger.Count, (transactionPageIndex + 1) * TransactionPageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -332,7 +356,9 @@ else
         await CheckForUpdateAsync();
     }
 
-    private async Task LoadAsync(string? accountToSelect = null)
+    private async Task LoadAsync(
+        string? accountToSelect = null,
+        bool resetTransactionPage = true)
     {
         errorMessage = null;
 
@@ -343,7 +369,7 @@ else
             selectedAccountId = snapshot.Accounts.Any(account => account.Id == desiredAccountId)
                 ? desiredAccountId
                 : snapshot.Accounts.FirstOrDefault()?.Id;
-            UpdateSelectedAccountState();
+            UpdateSelectedAccountState(resetTransactionPage);
         }
         catch (Exception exception)
         {
@@ -356,14 +382,62 @@ else
         selectedAccountId = accountId;
         actionMessage = null;
         errorMessage = null;
-        UpdateSelectedAccountState();
+        UpdateSelectedAccountState(resetTransactionPage: true);
     }
 
-    private void UpdateSelectedAccountState()
+    private void UpdateSelectedAccountState(bool resetTransactionPage)
     {
         editedAccountName = SelectedAccount?.Name ?? string.Empty;
         editedBalance = SelectedAccount?.Balance;
         isEditingAccount = false;
+        selectedLedger = TransactionLedger.Build(
+            snapshot?.Transactions.Where(
+                transaction => transaction.AccountId == selectedAccountId)
+                ?? [],
+            SelectedAccount?.Balance);
+
+        if (resetTransactionPage)
+        {
+            transactionPageIndex = 0;
+        }
+        else
+        {
+            transactionPageIndex = Math.Min(
+                transactionPageIndex,
+                TransactionPageCount - 1);
+        }
+
+        UpdateVisibleLedger();
+    }
+
+    private void ShowPreviousTransactionPage()
+    {
+        if (transactionPageIndex == 0)
+        {
+            return;
+        }
+
+        transactionPageIndex--;
+        UpdateVisibleLedger();
+    }
+
+    private void ShowNextTransactionPage()
+    {
+        if (transactionPageIndex >= TransactionPageCount - 1)
+        {
+            return;
+        }
+
+        transactionPageIndex++;
+        UpdateVisibleLedger();
+    }
+
+    private void UpdateVisibleLedger()
+    {
+        visibleLedger = selectedLedger
+            .Skip(transactionPageIndex * TransactionPageSize)
+            .Take(TransactionPageSize)
+            .ToArray();
     }
 
     private void BeginAccountEditing()
@@ -436,7 +510,7 @@ else
         try
         {
             await DataStore.UpdateAccountAsync(account.Id, name, editedBalance);
-            await LoadAsync(account.Id);
+            await LoadAsync(account.Id, resetTransactionPage: false);
             actionMessage = $"Saved {name}.";
         }
         catch (InvalidOperationException exception)
@@ -535,7 +609,7 @@ else
         try
         {
             await DataStore.SetTransactionCategoryAsync(transaction.Id, category);
-            await LoadAsync(transaction.AccountId);
+            await LoadAsync(transaction.AccountId, resetTransactionPage: false);
             actionMessage =
                 $"{transaction.Description} and matching transactions are now {category}.";
             return true;
@@ -618,7 +692,7 @@ else
         try
         {
             var updatedCount = await DataStore.ApplyTransactionCategoryRulesAsync(account.Id);
-            await LoadAsync(account.Id);
+            await LoadAsync(account.Id, resetTransactionPage: false);
             actionMessage = updatedCount == 0
                 ? "No additional transactions matched the category rules."
                 : $"Categorised {updatedCount} transaction"
