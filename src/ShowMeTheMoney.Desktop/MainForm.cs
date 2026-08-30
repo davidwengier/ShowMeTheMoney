@@ -7,16 +7,20 @@ public sealed class MainForm : Form
 {
     private const string ApplicationIconResourceName =
         "ShowMeTheMoney.Desktop.Assets.ShowMeTheMoney.ico";
+    private readonly string _windowPlacementPath;
 
-    internal MainForm(IServiceProvider services)
+    internal MainForm(IServiceProvider services, string windowPlacementPath)
     {
         ArgumentNullException.ThrowIfNull(services);
+        ArgumentException.ThrowIfNullOrWhiteSpace(windowPlacementPath);
 
+        _windowPlacementPath = windowPlacementPath;
         Text = "Show Me The Money";
         Icon = LoadApplicationIcon();
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(1000, 680);
         Size = new Size(1360, 860);
+        RestoreWindowPlacement();
 
         var blazorWebView = new EmbeddedBlazorWebView
         {
@@ -27,6 +31,31 @@ public sealed class MainForm : Form
         blazorWebView.RootComponents.Add<App>("#app");
 
         Controls.Add(blazorWebView);
+        FormClosing += SaveWindowPlacement;
+    }
+
+    private void RestoreWindowPlacement()
+    {
+        var placement = WindowPlacementStore.Load(_windowPlacementPath);
+        if (placement is null || !WindowPlacementStore.IsVisible(placement.Bounds))
+        {
+            return;
+        }
+
+        StartPosition = FormStartPosition.Manual;
+        Bounds = placement.Bounds;
+        if (placement.IsMaximized)
+        {
+            WindowState = FormWindowState.Maximized;
+        }
+    }
+
+    private void SaveWindowPlacement(object? sender, FormClosingEventArgs args)
+    {
+        var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+        WindowPlacementStore.Save(
+            _windowPlacementPath,
+            new WindowPlacement(bounds, WindowState == FormWindowState.Maximized));
     }
 
     private static Icon LoadApplicationIcon()

@@ -18,6 +18,7 @@ internal static class Program
         var appDataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ShowMeTheMoney");
+        Directory.CreateDirectory(appDataDirectory);
         var databasePath = Environment.GetEnvironmentVariable("SHOW_ME_THE_MONEY_DATABASE");
         if (string.IsNullOrWhiteSpace(databasePath))
         {
@@ -39,6 +40,8 @@ internal static class Program
         services.AddSingleton<IApplicationUpdateService, VelopackApplicationUpdateService>();
 
         using var serviceProvider = services.BuildServiceProvider();
-        Application.Run(new MainForm(serviceProvider));
+        Application.Run(new MainForm(
+            serviceProvider,
+            Path.Combine(appDataDirectory, "window-placement.json")));
     }
 }

@@ -139,7 +139,6 @@ h2 {
 .connection-card,
 .update-card,
 .panel,
-.summary-card,
 .loading-card,
 .empty-state,
 .message {
@@ -223,13 +222,6 @@ h2 {
     box-shadow: 0 0 1rem rgba(66, 229, 155, 0.75);
 }
 
-.summary-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1rem;
-    margin-bottom: 1rem;
-}
-
 .account-workspace {
     display: grid;
     grid-template-columns: minmax(18rem, 0.65fr) minmax(32rem, 1.8fr);
@@ -280,6 +272,11 @@ h2 {
     width: 100%;
 }
 
+.account-edit-actions {
+    display: flex;
+    gap: 0.65rem;
+}
+
 input {
     min-width: 0;
     padding: 0.7rem 0.8rem;
@@ -293,6 +290,14 @@ input {
 input:focus {
     border-color: #52dfa0;
     box-shadow: 0 0 0 3px rgba(82, 223, 160, 0.12);
+}
+
+input:disabled {
+    border-color: #1d332c;
+    background: rgba(9, 24, 19, 0.5);
+    color: #b9d7cc;
+    cursor: default;
+    opacity: 1;
 }
 
 .add-account-form {
@@ -312,23 +317,11 @@ input:focus {
     flex: 1;
 }
 
-.summary-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
-    padding: 1.2rem;
-}
-
-.summary-card span,
 .account-row span,
 .transaction-description span,
 .transaction-date span {
     color: #91a69e;
     font-size: 0.82rem;
-}
-
-.summary-card strong {
-    font-size: 1.65rem;
 }
 
 .positive {
@@ -489,10 +482,6 @@ input:focus {
 @media (max-width: 900px) {
     main {
         padding: 1.25rem;
-    }
-
-    .summary-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .content-grid {

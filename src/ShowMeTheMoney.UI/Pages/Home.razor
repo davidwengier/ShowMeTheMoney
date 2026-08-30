@@ -115,6 +115,7 @@ else
                                 <input aria-label="Account name"
                                        @bind="editedAccountName"
                                        @bind:event="oninput"
+                                       disabled="@(!isEditingAccount)"
                                        @onkeydown="HandleAccountKeyDown" />
                             </label>
                             <label>
@@ -123,13 +124,32 @@ else
                                        step="0.01"
                                        aria-label="Current balance"
                                        @bind="editedBalance"
+                                       disabled="@(!isEditingAccount)"
                                        @onkeydown="HandleAccountKeyDown" />
                             </label>
-                            <button class="secondary-button"
-                                    @onclick="SaveAccountAsync"
-                                    disabled="@isWorking">
-                                Save account
-                            </button>
+                            <div class="account-edit-actions">
+                                @if (isEditingAccount)
+                                {
+                                    <button class="primary-button"
+                                            @onclick="SaveAccountAsync"
+                                            disabled="@isWorking">
+                                        Save
+                                    </button>
+                                    <button class="secondary-button"
+                                            @onclick="CancelAccountEditing"
+                                            disabled="@isWorking">
+                                        Cancel
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button class="secondary-button"
+                                            @onclick="BeginAccountEditing"
+                                            disabled="@isWorking">
+                                        Edit account
+                                    </button>
+                                }
+                            </div>
                         </div>
                     </div>
                     <button class="primary-button"
@@ -137,27 +157,6 @@ else
                             disabled="@isWorking">
                         @(isWorking ? "Working..." : "Import QIF")
                     </button>
-                </section>
-
-                <section class="summary-grid">
-                    <article class="summary-card">
-                        <span>Current balance</span>
-                        <strong>@FormatOptionalMoney(SelectedAccount.Balance)</strong>
-                    </article>
-                    <article class="summary-card">
-                        <span>Money in</span>
-                        <strong class="positive">@FormatMoney(summary.Income)</strong>
-                    </article>
-                    <article class="summary-card">
-                        <span>Money out</span>
-                        <strong class="negative">@FormatMoney(summary.Spending)</strong>
-                    </article>
-                    <article class="summary-card">
-                        <span>Net cash flow</span>
-                        <strong class="@(summary.NetCashFlow >= 0 ? "positive" : "negative")">
-                            @FormatMoney(summary.NetCashFlow)
-                        </strong>
-                    </article>
                 </section>
 
                 <article class="panel transactions-panel">
@@ -239,7 +238,6 @@ else
     private IApplicationUpdateService UpdateService { get; set; } = null!;
 
     private BankingSnapshot? snapshot;
-    private TransactionSummary summary = new(0, 0, 0);
     private string? selectedAccountId;
     private string newAccountName = string.Empty;
     private string editedAccountName = string.Empty;
@@ -250,6 +248,7 @@ else
     private ApplicationUpdate? availableUpdate;
     private bool isWorking;
     private bool isInstallingUpdate;
+    private bool isEditingAccount;
 
     private BankAccount? SelectedAccount =>
         snapshot?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
@@ -301,7 +300,24 @@ else
     {
         editedAccountName = SelectedAccount?.Name ?? string.Empty;
         editedBalance = SelectedAccount?.Balance;
-        summary = TransactionSummarizer.Summarize(SelectedTransactions);
+        isEditingAccount = false;
+    }
+
+    private void BeginAccountEditing()
+    {
+        editedAccountName = SelectedAccount?.Name ?? string.Empty;
+        editedBalance = SelectedAccount?.Balance;
+        errorMessage = null;
+        actionMessage = null;
+        isEditingAccount = true;
+    }
+
+    private void CancelAccountEditing()
+    {
+        editedAccountName = SelectedAccount?.Name ?? string.Empty;
+        editedBalance = SelectedAccount?.Balance;
+        errorMessage = null;
+        isEditingAccount = false;
     }
 
     private async Task AddAccountAsync()
@@ -434,9 +450,18 @@ else
 
     private async Task HandleAccountKeyDown(KeyboardEventArgs args)
     {
+        if (!isEditingAccount)
+        {
+            return;
+        }
+
         if (args.Key == "Enter")
         {
             await SaveAccountAsync();
+        }
+        else if (args.Key == "Escape")
+        {
+            CancelAccountEditing();
         }
     }
 
