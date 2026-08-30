@@ -21,6 +21,12 @@ public interface IBankingDataStore : IBankingDataSource
         string accountId,
         CancellationToken cancellationToken = default);
 
+    Task<TransactionPage> GetTransactionPageAsync(
+        string accountId,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken = default);
+
     Task<IReadOnlyList<TransactionCategoryRule>> GetLearnedTransactionCategoryRulesAsync(
         CancellationToken cancellationToken = default);
 

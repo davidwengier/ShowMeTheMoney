@@ -11,6 +11,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
 
     private readonly string _connectionString;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private bool _schemaInitialized;
 
     public SqliteBankingDataStore(string databasePath)
     {
@@ -58,6 +59,30 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         }
     }
 
+    public async Task<BankingOverview> GetOverviewAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+
+            var metadata = await ReadMetadataAsync(connection, cancellationToken);
+            var accounts = await ReadAccountsAsync(connection, cancellationToken);
+            return new BankingOverview(
+                metadata.GetValueOrDefault("institution_name", EmptyInstitutionName),
+                metadata.GetValueOrDefault(
+                    "data_source_description",
+                    EmptyDataSourceDescription),
+                accounts);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task ReplaceSnapshotAsync(
         BankingSnapshot snapshot,
         CancellationToken cancellationToken = default)
@@ -83,6 +108,14 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 transaction,
                 snapshot.Transactions,
                 cancellationToken);
+            foreach (var account in snapshot.Accounts)
+            {
+                await RebuildRunningBalancesAsync(
+                    connection,
+                    transaction,
+                    account.Id,
+                    cancellationToken);
+            }
 
             await transaction.CommitAsync(cancellationToken);
         }
@@ -138,7 +171,9 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         {
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await EnsureSchemaAsync(connection, cancellationToken);
+            await using var transaction = connection.BeginTransaction();
             await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText =
                 """
                 UPDATE accounts
@@ -158,6 +193,13 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 throw new InvalidOperationException(
                     $"Account '{accountId}' does not exist.");
             }
+
+            await RebuildRunningBalancesAsync(
+                connection,
+                transaction,
+                accountId,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
         finally
         {
@@ -221,6 +263,11 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                     cancellationToken);
             }
 
+            await RebuildRunningBalancesAsync(
+                connection,
+                transaction,
+                accountId,
+                cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
         finally
@@ -350,6 +397,42 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         }
     }
 
+    public async Task<TransactionPage> GetTransactionPageAsync(
+        string accountId,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        ArgumentOutOfRangeException.ThrowIfNegative(pageIndex);
+        ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(pageSize, 500);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            var totalCount = await ReadTransactionCountAsync(
+                connection,
+                accountId,
+                cancellationToken);
+            var pageCount = Math.Max(1, (totalCount + pageSize - 1) / pageSize);
+            var actualPageIndex = Math.Min(pageIndex, pageCount - 1);
+            var entries = await ReadTransactionPageAsync(
+                connection,
+                accountId,
+                actualPageIndex,
+                pageSize,
+                cancellationToken);
+            return new TransactionPage(entries, totalCount, actualPageIndex, pageSize);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<SqliteConnection> OpenConnectionAsync(
         CancellationToken cancellationToken)
     {
@@ -362,10 +445,15 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         return connection;
     }
 
-    private static async Task EnsureSchemaAsync(
+    private async Task EnsureSchemaAsync(
         SqliteConnection connection,
         CancellationToken cancellationToken)
     {
+        if (_schemaInitialized)
+        {
+            return;
+        }
+
         await using var command = connection.CreateCommand();
         command.CommandText =
             """
@@ -393,24 +481,218 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 currency TEXT NOT NULL,
                 is_pending INTEGER NOT NULL,
                 display_order INTEGER NOT NULL,
+                running_balance TEXT NULL,
                 FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE
             );
+
+            CREATE INDEX IF NOT EXISTS ix_transactions_account_date
+            ON transactions (account_id, posted_on DESC, display_order);
 
             CREATE TABLE IF NOT EXISTS category_rules (
                 merchant_key TEXT NOT NULL PRIMARY KEY,
                 category TEXT NOT NULL
             );
-
-            UPDATE transactions
-            SET category = 'Uncategorised'
-            WHERE category COLLATE NOCASE = 'Other';
-
-            DELETE FROM category_rules
-            WHERE category COLLATE NOCASE = 'Other';
-
-            PRAGMA user_version = 3;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
+
+        var schemaVersion = await ReadSchemaVersionAsync(connection, cancellationToken);
+        if (schemaVersion < 3)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction: null,
+                """
+                UPDATE transactions
+                SET category = 'Uncategorised'
+                WHERE category COLLATE NOCASE = 'Other';
+
+                DELETE FROM category_rules
+                WHERE category COLLATE NOCASE = 'Other';
+                """,
+                cancellationToken);
+        }
+
+        if (!await ColumnExistsAsync(
+                connection,
+                "transactions",
+                "running_balance",
+                cancellationToken))
+        {
+            await ExecuteAsync(
+                connection,
+                transaction: null,
+                "ALTER TABLE transactions ADD COLUMN running_balance TEXT NULL;",
+                cancellationToken);
+            var accounts = await ReadAccountsAsync(connection, cancellationToken);
+            foreach (var account in accounts)
+            {
+                await RebuildRunningBalancesAsync(
+                    connection,
+                    transaction: null,
+                    account.Id,
+                    cancellationToken);
+            }
+        }
+
+        if (schemaVersion < 4)
+        {
+            await ExecuteAsync(
+                connection,
+                transaction: null,
+                "PRAGMA user_version = 4;",
+                cancellationToken);
+        }
+
+        _schemaInitialized = true;
+    }
+
+    private static async Task<int> ReadSchemaVersionAsync(
+        SqliteConnection connection,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        return Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken),
+            CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<bool> ColumnExistsAsync(
+        SqliteConnection connection,
+        string tableName,
+        string columnName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info({tableName});";
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            if (reader.GetString(1).Equals(columnName, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static async Task<int> ReadTransactionCountAsync(
+        SqliteConnection connection,
+        string accountId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT COUNT(*) FROM transactions WHERE account_id = $account_id;";
+        command.Parameters.AddWithValue("$account_id", accountId);
+        return Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken),
+            CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<IReadOnlyList<TransactionLedgerEntry>> ReadTransactionPageAsync(
+        SqliteConnection connection,
+        string accountId,
+        int pageIndex,
+        int pageSize,
+        CancellationToken cancellationToken)
+    {
+        var entries = new List<TransactionLedgerEntry>(pageSize);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            SELECT id, account_id, posted_on, description, category, amount,
+                   currency, is_pending, running_balance
+            FROM transactions
+            WHERE account_id = $account_id
+            ORDER BY posted_on DESC, display_order
+            LIMIT $page_size OFFSET $offset;
+            """;
+        command.Parameters.AddWithValue("$account_id", accountId);
+        command.Parameters.AddWithValue("$page_size", pageSize);
+        command.Parameters.AddWithValue("$offset", pageIndex * pageSize);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            entries.Add(new TransactionLedgerEntry(
+                new BankTransaction(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    DateOnly.ParseExact(
+                        reader.GetString(2),
+                        "yyyy-MM-dd",
+                        CultureInfo.InvariantCulture),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    ParseDecimal(reader.GetString(5)),
+                    reader.GetString(6),
+                    reader.GetBoolean(7)),
+                reader.IsDBNull(8) ? null : ParseDecimal(reader.GetString(8))));
+        }
+
+        return entries;
+    }
+
+    private static async Task RebuildRunningBalancesAsync(
+        SqliteConnection connection,
+        SqliteTransaction? transaction,
+        string accountId,
+        CancellationToken cancellationToken)
+    {
+        decimal? runningBalance;
+        await using (var accountCommand = connection.CreateCommand())
+        {
+            accountCommand.Transaction = transaction;
+            accountCommand.CommandText = "SELECT balance FROM accounts WHERE id = $id;";
+            accountCommand.Parameters.AddWithValue("$id", accountId);
+            var balance = await accountCommand.ExecuteScalarAsync(cancellationToken);
+            if (balance is null)
+            {
+                throw new InvalidOperationException($"Account '{accountId}' does not exist.");
+            }
+
+            runningBalance = balance == DBNull.Value
+                ? null
+                : ParseDecimal((string)balance);
+        }
+
+        var transactions = new List<(string Id, decimal Amount)>();
+        await using (var transactionCommand = connection.CreateCommand())
+        {
+            transactionCommand.Transaction = transaction;
+            transactionCommand.CommandText =
+                """
+                SELECT id, amount
+                FROM transactions
+                WHERE account_id = $account_id
+                ORDER BY posted_on DESC, display_order;
+                """;
+            transactionCommand.Parameters.AddWithValue("$account_id", accountId);
+            await using var reader =
+                await transactionCommand.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                transactions.Add((reader.GetString(0), ParseDecimal(reader.GetString(1))));
+            }
+        }
+
+        foreach (var bankTransaction in transactions)
+        {
+            await using var updateCommand = connection.CreateCommand();
+            updateCommand.Transaction = transaction;
+            updateCommand.CommandText =
+                "UPDATE transactions SET running_balance = $balance WHERE id = $id;";
+            updateCommand.Parameters.AddWithValue(
+                "$balance",
+                runningBalance is null
+                    ? DBNull.Value
+                    : FormatDecimal(runningBalance.Value));
+            updateCommand.Parameters.AddWithValue("$id", bankTransaction.Id);
+            await updateCommand.ExecuteNonQueryAsync(cancellationToken);
+            runningBalance -= bankTransaction.Amount;
+        }
     }
 
     private static async Task<IReadOnlyDictionary<string, string>> ReadCategoryRulesAsync(
@@ -829,7 +1111,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
 
     private static async Task ExecuteAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        SqliteTransaction? transaction,
         string commandText,
         CancellationToken cancellationToken)
     {

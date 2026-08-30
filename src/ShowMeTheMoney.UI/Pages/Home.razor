@@ -41,7 +41,7 @@
 {
     <div class="message error-message">@errorMessage</div>
 }
-else if (snapshot is null)
+else if (overview is null)
 {
     <div class="loading-card">Loading accounts...</div>
 }
@@ -54,16 +54,16 @@ else
                     <p class="eyebrow">Your accounts</p>
                     <h2>Accounts</h2>
                 </div>
-                <span>@snapshot.Accounts.Count</span>
+                <span>@overview.Accounts.Count</span>
             </div>
 
-            @if (snapshot.Accounts.Count > 0)
+            @if (overview.Accounts.Count > 0)
             {
                 <div class="account-list">
-                    @foreach (var account in snapshot.Accounts)
+                    @foreach (var account in overview.Accounts)
                     {
                         <button class="account-row @(account.Id == selectedAccountId ? "selected" : null)"
-                                @onclick="() => SelectAccount(account.Id)">
+                                @onclick="() => SelectAccountAsync(account.Id)">
                             <div>
                                 <strong>@account.Name</strong>
                                 <span>@FormatOptionalMoney(account.Balance)</span>
@@ -166,7 +166,7 @@ else
                             <h2>Transactions</h2>
                         </div>
                         <div class="transaction-heading-actions">
-                            <span>@snapshot.DataSourceDescription</span>
+                            <span>@overview.DataSourceDescription</span>
                             <button class="secondary-button compact-button"
                                     @onclick="ApplyCategoryRulesAsync"
                                     disabled="@isWorking">
@@ -175,7 +175,7 @@ else
                         </div>
                     </div>
 
-                    @if (selectedLedger.Count == 0)
+                    @if (transactionCount == 0)
                     {
                         <div class="transaction-empty-state">
                             <strong>No transactions imported</strong>
@@ -192,7 +192,7 @@ else
                             <span>Balance</span>
                         </div>
                         <div class="transaction-list">
-                            @foreach (var entry in visibleLedger)
+                            @foreach (var entry in transactionPage)
                             {
                                 var transaction = entry.Transaction;
                                 <div class="transaction-row">
@@ -206,7 +206,7 @@ else
                                                 aria-label="@($"Category for {transaction.Description}")"
                                                 value="@transaction.Category"
                                                 @onchange="args => HandleTransactionCategoryChangeAsync(transaction, args)"
-                                                disabled="@isWorking">
+                                                disabled="@(isWorking || isLoadingTransactions)">
                                             @foreach (var category in GetCategoryOptions(transaction.Category))
                                             {
                                                 <option value="@category">@category</option>
@@ -229,12 +229,12 @@ else
                         <div class="transaction-pagination">
                             <span>
                                 Showing @TransactionPageStart-@TransactionPageEnd
-                                of @selectedLedger.Count
+                                of @transactionCount
                             </span>
                             <div>
                                 <button class="secondary-button compact-button"
                                         @onclick="ShowPreviousTransactionPage"
-                                        disabled="@(isWorking || transactionPageIndex == 0)">
+                                        disabled="@(isWorking || isLoadingTransactions || transactionPageIndex == 0)">
                                     Previous
                                 </button>
                                 <strong>
@@ -242,7 +242,7 @@ else
                                 </strong>
                                 <button class="secondary-button compact-button"
                                         @onclick="ShowNextTransactionPage"
-                                        disabled="@(isWorking || transactionPageIndex >= TransactionPageCount - 1)">
+                                        disabled="@(isWorking || isLoadingTransactions || transactionPageIndex >= TransactionPageCount - 1)">
                                     Next
                                 </button>
                             </div>
@@ -319,7 +319,7 @@ else
     [Inject]
     private IApplicationUpdateService UpdateService { get; set; } = null!;
 
-    private BankingSnapshot? snapshot;
+    private BankingOverview? overview;
     private string? selectedAccountId;
     private string newAccountName = string.Empty;
     private string editedAccountName = string.Empty;
@@ -334,21 +334,22 @@ else
     private BankTransaction? transactionForNewCategory;
     private string newCategoryName = string.Empty;
     private string? newCategoryError;
-    private IReadOnlyList<TransactionLedgerEntry> selectedLedger = [];
-    private IReadOnlyList<TransactionLedgerEntry> visibleLedger = [];
+    private IReadOnlyList<TransactionLedgerEntry> transactionPage = [];
+    private int transactionCount;
     private int transactionPageIndex;
+    private bool isLoadingTransactions;
 
     private BankAccount? SelectedAccount =>
-        snapshot?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
+        overview?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
 
     private int TransactionPageCount =>
-        Math.Max(1, (selectedLedger.Count + TransactionPageSize - 1) / TransactionPageSize);
+        Math.Max(1, (transactionCount + TransactionPageSize - 1) / TransactionPageSize);
 
     private int TransactionPageStart =>
-        selectedLedger.Count == 0 ? 0 : (transactionPageIndex * TransactionPageSize) + 1;
+        transactionCount == 0 ? 0 : (transactionPageIndex * TransactionPageSize) + 1;
 
     private int TransactionPageEnd =>
-        Math.Min(selectedLedger.Count, (transactionPageIndex + 1) * TransactionPageSize);
+        Math.Min(transactionCount, (transactionPageIndex + 1) * TransactionPageSize);
 
     protected override async Task OnInitializedAsync()
     {
@@ -364,12 +365,12 @@ else
 
         try
         {
-            snapshot = await DataSource.GetSnapshotAsync();
+            overview = await DataSource.GetOverviewAsync();
             var desiredAccountId = accountToSelect ?? selectedAccountId;
-            selectedAccountId = snapshot.Accounts.Any(account => account.Id == desiredAccountId)
+            selectedAccountId = overview.Accounts.Any(account => account.Id == desiredAccountId)
                 ? desiredAccountId
-                : snapshot.Accounts.FirstOrDefault()?.Id;
-            UpdateSelectedAccountState(resetTransactionPage);
+                : overview.Accounts.FirstOrDefault()?.Id;
+            await UpdateSelectedAccountStateAsync(resetTransactionPage);
         }
         catch (Exception exception)
         {
@@ -377,67 +378,71 @@ else
         }
     }
 
-    private void SelectAccount(string accountId)
+    private async Task SelectAccountAsync(string accountId)
     {
         selectedAccountId = accountId;
         actionMessage = null;
         errorMessage = null;
-        UpdateSelectedAccountState(resetTransactionPage: true);
+        await UpdateSelectedAccountStateAsync(resetTransactionPage: true);
     }
 
-    private void UpdateSelectedAccountState(bool resetTransactionPage)
+    private async Task UpdateSelectedAccountStateAsync(bool resetTransactionPage)
     {
         editedAccountName = SelectedAccount?.Name ?? string.Empty;
         editedBalance = SelectedAccount?.Balance;
         isEditingAccount = false;
-        selectedLedger = TransactionLedger.Build(
-            snapshot?.Transactions.Where(
-                transaction => transaction.AccountId == selectedAccountId)
-                ?? [],
-            SelectedAccount?.Balance);
-
-        if (resetTransactionPage)
-        {
-            transactionPageIndex = 0;
-        }
-        else
-        {
-            transactionPageIndex = Math.Min(
-                transactionPageIndex,
-                TransactionPageCount - 1);
-        }
-
-        UpdateVisibleLedger();
+        await LoadTransactionPageAsync(resetTransactionPage ? 0 : transactionPageIndex);
     }
 
-    private void ShowPreviousTransactionPage()
+    private async Task ShowPreviousTransactionPage()
     {
         if (transactionPageIndex == 0)
         {
             return;
         }
 
-        transactionPageIndex--;
-        UpdateVisibleLedger();
+        await LoadTransactionPageAsync(transactionPageIndex - 1);
     }
 
-    private void ShowNextTransactionPage()
+    private async Task ShowNextTransactionPage()
     {
         if (transactionPageIndex >= TransactionPageCount - 1)
         {
             return;
         }
 
-        transactionPageIndex++;
-        UpdateVisibleLedger();
+        await LoadTransactionPageAsync(transactionPageIndex + 1);
     }
 
-    private void UpdateVisibleLedger()
+    private async Task LoadTransactionPageAsync(int pageIndex)
     {
-        visibleLedger = selectedLedger
-            .Skip(transactionPageIndex * TransactionPageSize)
-            .Take(TransactionPageSize)
-            .ToArray();
+        if (selectedAccountId is null)
+        {
+            transactionPage = [];
+            transactionCount = 0;
+            transactionPageIndex = 0;
+            return;
+        }
+
+        isLoadingTransactions = true;
+        try
+        {
+            var page = await DataStore.GetTransactionPageAsync(
+                selectedAccountId,
+                pageIndex,
+                TransactionPageSize);
+            transactionPage = page.Entries;
+            transactionCount = page.TotalCount;
+            transactionPageIndex = page.PageIndex;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Transactions could not be loaded: {exception.Message}";
+        }
+        finally
+        {
+            isLoadingTransactions = false;
+        }
     }
 
     private void BeginAccountEditing()

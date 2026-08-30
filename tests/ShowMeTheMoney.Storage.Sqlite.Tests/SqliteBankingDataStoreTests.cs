@@ -1,3 +1,4 @@
+using Microsoft.Data.Sqlite;
 using ShowMeTheMoney.Core.Banking;
 using ShowMeTheMoney.Storage.Sqlite;
 using Xunit;
@@ -235,6 +236,146 @@ public sealed class SqliteBankingDataStoreTests
 
             Assert.Equal(1, updatedCount);
             Assert.Equal("Entertainment", Assert.Single(loaded.Transactions).Category);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task TransactionPages_ReturnRequestedRowsAndCachedRunningBalances()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var store = new SqliteBankingDataStore(databasePath);
+            await store.AddAccountAsync(
+                new BankAccount("everyday", "Everyday", "Manual account", 1000m, "AUD"),
+                cancellationToken);
+            var transactions = Enumerable.Range(0, 125)
+                .Select(index => new BankTransaction(
+                    $"transaction-{index}",
+                    "everyday",
+                    new DateOnly(2026, 1, 1).AddDays(index),
+                    $"Transaction {index}",
+                    "Test",
+                    -1m,
+                    "AUD",
+                    false))
+                .ToArray();
+            await store.ImportTransactionsAsync(
+                "everyday",
+                transactions,
+                "Imported transactions",
+                cancellationToken);
+
+            var firstPage = await store.GetTransactionPageAsync(
+                "everyday",
+                0,
+                50,
+                cancellationToken);
+            var secondPage = await store.GetTransactionPageAsync(
+                "everyday",
+                1,
+                50,
+                cancellationToken);
+            var lastPage = await store.GetTransactionPageAsync(
+                "everyday",
+                99,
+                50,
+                cancellationToken);
+
+            Assert.Equal(125, firstPage.TotalCount);
+            Assert.Equal(50, firstPage.Entries.Count);
+            Assert.Equal("transaction-124", firstPage.Entries[0].Transaction.Id);
+            Assert.Equal(1000m, firstPage.Entries[0].RunningBalance);
+            Assert.Equal("transaction-75", firstPage.Entries[^1].Transaction.Id);
+            Assert.Equal(1049m, firstPage.Entries[^1].RunningBalance);
+            Assert.Equal("transaction-74", secondPage.Entries[0].Transaction.Id);
+            Assert.Equal(1050m, secondPage.Entries[0].RunningBalance);
+            Assert.Equal(2, lastPage.PageIndex);
+            Assert.Equal(25, lastPage.Entries.Count);
+            Assert.Equal("transaction-24", lastPage.Entries[0].Transaction.Id);
+            Assert.Equal(1100m, lastPage.Entries[0].RunningBalance);
+
+            await store.UpdateAccountAsync(
+                "everyday",
+                "Everyday",
+                2000m,
+                cancellationToken);
+            var updatedSecondPage = await store.GetTransactionPageAsync(
+                "everyday",
+                1,
+                50,
+                cancellationToken);
+
+            Assert.Equal(2050m, updatedSecondPage.Entries[0].RunningBalance);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task TransactionPages_UpgradeAndPopulateExistingBalanceCache()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            await using (var connection = new SqliteConnection(
+                $"Data Source={databasePath};Pooling=False"))
+            {
+                await connection.OpenAsync(TestContext.Current.CancellationToken);
+                await using var command = connection.CreateCommand();
+                command.CommandText =
+                    """
+                    CREATE TABLE accounts (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        masked_number TEXT NOT NULL,
+                        balance TEXT NULL,
+                        currency TEXT NOT NULL,
+                        display_order INTEGER NOT NULL
+                    );
+
+                    CREATE TABLE transactions (
+                        id TEXT NOT NULL PRIMARY KEY,
+                        account_id TEXT NOT NULL,
+                        posted_on TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        amount TEXT NOT NULL,
+                        currency TEXT NOT NULL,
+                        is_pending INTEGER NOT NULL,
+                        display_order INTEGER NOT NULL
+                    );
+
+                    INSERT INTO accounts
+                        (id, name, masked_number, balance, currency, display_order)
+                    VALUES
+                        ('everyday', 'Everyday', 'Manual account', '100', 'AUD', 0);
+
+                    INSERT INTO transactions
+                        (id, account_id, posted_on, description, category, amount,
+                         currency, is_pending, display_order)
+                    VALUES
+                        ('transaction-1', 'everyday', '2026-08-30', 'Purchase',
+                         'Test', '-10', 'AUD', 0, 0);
+                    """;
+                await command.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+            }
+
+            var store = new SqliteBankingDataStore(databasePath);
+            var page = await store.GetTransactionPageAsync(
+                "everyday",
+                0,
+                50,
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(100m, Assert.Single(page.Entries).RunningBalance);
         }
         finally
         {
