@@ -92,6 +92,122 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         }
     }
 
+    public async Task AddAccountAsync(
+        BankAccount account,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(account);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            await using var transaction = connection.BeginTransaction();
+
+            var displayOrder = await GetNextDisplayOrderAsync(
+                connection,
+                transaction,
+                "accounts",
+                cancellationToken);
+            await InsertAccountAsync(
+                connection,
+                transaction,
+                account,
+                displayOrder,
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task RenameAccountAsync(
+        string accountId,
+        string name,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            await using var command = connection.CreateCommand();
+            command.CommandText = "UPDATE accounts SET name = $name WHERE id = $id;";
+            command.Parameters.AddWithValue("$name", name.Trim());
+            command.Parameters.AddWithValue("$id", accountId);
+
+            if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Account '{accountId}' does not exist.");
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task ImportTransactionsAsync(
+        string accountId,
+        IReadOnlyList<BankTransaction> transactions,
+        string dataSourceDescription,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
+        ArgumentNullException.ThrowIfNull(transactions);
+        ArgumentException.ThrowIfNullOrWhiteSpace(dataSourceDescription);
+
+        if (transactions.Any(transaction => transaction.AccountId != accountId))
+        {
+            throw new ArgumentException(
+                "Every imported transaction must belong to the selected account.",
+                nameof(transactions));
+        }
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            await using var transaction = connection.BeginTransaction();
+
+            await UpsertMetadataValueAsync(
+                connection,
+                transaction,
+                "institution_name",
+                "Imported bank accounts",
+                cancellationToken);
+            await UpsertMetadataValueAsync(
+                connection,
+                transaction,
+                "data_source_description",
+                dataSourceDescription,
+                cancellationToken);
+
+            foreach (var bankTransaction in transactions)
+            {
+                await UpsertTransactionAsync(
+                    connection,
+                    transaction,
+                    bankTransaction,
+                    cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<SqliteConnection> OpenConnectionAsync(
         CancellationToken cancellationToken)
     {
@@ -264,30 +380,44 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
     {
         for (var index = 0; index < accounts.Count; index++)
         {
-            var account = accounts[index];
-            await using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText =
-                """
-                INSERT INTO accounts (
-                    id, name, masked_number, balance, currency, display_order
-                )
-                VALUES (
-                    $id, $name, $masked_number, $balance, $currency, $display_order
-                );
-                """;
-            command.Parameters.AddWithValue("$id", account.Id);
-            command.Parameters.AddWithValue("$name", account.Name);
-            command.Parameters.AddWithValue("$masked_number", account.MaskedNumber);
-            command.Parameters.AddWithValue(
-                "$balance",
-                account.Balance is null
-                    ? DBNull.Value
-                    : FormatDecimal(account.Balance.Value));
-            command.Parameters.AddWithValue("$currency", account.Currency);
-            command.Parameters.AddWithValue("$display_order", index);
-            await command.ExecuteNonQueryAsync(cancellationToken);
+            await InsertAccountAsync(
+                connection,
+                transaction,
+                accounts[index],
+                index,
+                cancellationToken);
         }
+    }
+
+    private static async Task InsertAccountAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BankAccount account,
+        int displayOrder,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            INSERT INTO accounts (
+                id, name, masked_number, balance, currency, display_order
+            )
+            VALUES (
+                $id, $name, $masked_number, $balance, $currency, $display_order
+            );
+            """;
+        command.Parameters.AddWithValue("$id", account.Id);
+        command.Parameters.AddWithValue("$name", account.Name);
+        command.Parameters.AddWithValue("$masked_number", account.MaskedNumber);
+        command.Parameters.AddWithValue(
+            "$balance",
+            account.Balance is null
+                ? DBNull.Value
+                : FormatDecimal(account.Balance.Value));
+        command.Parameters.AddWithValue("$currency", account.Currency);
+        command.Parameters.AddWithValue("$display_order", displayOrder);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task InsertTransactionsAsync(
@@ -325,6 +455,81 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             command.Parameters.AddWithValue("$display_order", index);
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static async Task UpsertTransactionAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        BankTransaction bankTransaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            INSERT INTO transactions (
+                id, account_id, posted_on, description, category, amount,
+                currency, is_pending, display_order
+            )
+            VALUES (
+                $id, $account_id, $posted_on, $description, $category, $amount,
+                $currency, $is_pending,
+                (SELECT COALESCE(MAX(display_order), -1) + 1 FROM transactions)
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                account_id = excluded.account_id,
+                posted_on = excluded.posted_on,
+                description = excluded.description,
+                category = excluded.category,
+                amount = excluded.amount,
+                currency = excluded.currency,
+                is_pending = excluded.is_pending;
+            """;
+        command.Parameters.AddWithValue("$id", bankTransaction.Id);
+        command.Parameters.AddWithValue("$account_id", bankTransaction.AccountId);
+        command.Parameters.AddWithValue(
+            "$posted_on",
+            bankTransaction.PostedOn.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$description", bankTransaction.Description);
+        command.Parameters.AddWithValue("$category", bankTransaction.Category);
+        command.Parameters.AddWithValue("$amount", FormatDecimal(bankTransaction.Amount));
+        command.Parameters.AddWithValue("$currency", bankTransaction.Currency);
+        command.Parameters.AddWithValue("$is_pending", bankTransaction.IsPending);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task UpsertMetadataValueAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string key,
+        string value,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText =
+            """
+            INSERT INTO metadata (key, value)
+            VALUES ($key, $value)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+            """;
+        command.Parameters.AddWithValue("$key", key);
+        command.Parameters.AddWithValue("$value", value);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task<int> GetNextDisplayOrderAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string tableName,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = $"SELECT COALESCE(MAX(display_order), -1) + 1 FROM {tableName};";
+        return Convert.ToInt32(
+            await command.ExecuteScalarAsync(cancellationToken),
+            CultureInfo.InvariantCulture);
     }
 
     private static async Task ExecuteAsync(

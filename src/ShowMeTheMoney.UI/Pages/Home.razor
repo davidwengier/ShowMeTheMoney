@@ -5,18 +5,10 @@
 <section class="hero">
     <div>
         <p class="eyebrow">Your money, made visible</p>
-        <h1>Transactions</h1>
+        <h1>Accounts</h1>
         <p class="hero-copy">
-            Start with a clear view of where money is coming from and where it is going.
+            Add an account, select it, then import its QIF transaction history.
         </p>
-    </div>
-    <div class="hero-actions">
-        <button class="secondary-button" @onclick="LoadAsync" disabled="@isLoading">
-            Refresh
-        </button>
-        <button class="primary-button" @onclick="ImportQifAsync" disabled="@isLoading">
-            @(isLoading ? "Working..." : "Import QIF")
-        </button>
     </div>
 </section>
 
@@ -40,9 +32,9 @@
     </section>
 }
 
-@if (importMessage is not null)
+@if (actionMessage is not null)
 {
-    <div class="message import-message">@importMessage</div>
+    <div class="message import-message">@actionMessage</div>
 }
 
 @if (errorMessage is not null)
@@ -51,102 +43,152 @@
 }
 else if (snapshot is null)
 {
-    <div class="loading-card">Loading transactions...</div>
-}
-else if (snapshot.Transactions.Count == 0)
-{
-    <section class="empty-state">
-        <div class="empty-state-icon">QIF</div>
-        <p class="eyebrow">Nothing imported yet</p>
-        <h2>Import your bank transactions</h2>
-        <p>
-            Download a QIF transaction export from your bank, then select
-            <strong>Import QIF</strong> above.
-        </p>
-    </section>
+    <div class="loading-card">Loading accounts...</div>
 }
 else
 {
-    <section class="connection-card">
-        <div>
-            <span class="status-dot"></span>
-            <strong>@snapshot.InstitutionName</strong>
-            <span class="muted"> · @snapshot.DataSourceDescription</span>
-        </div>
-        <span class="connection-label">Local data</span>
-    </section>
-
-    <section class="summary-grid">
-        <article class="summary-card">
-            <span>Money in</span>
-            <strong class="positive">@FormatMoney(summary.Income)</strong>
-        </article>
-        <article class="summary-card">
-            <span>Money out</span>
-            <strong class="negative">@FormatMoney(summary.Spending)</strong>
-        </article>
-        <article class="summary-card">
-            <span>Net cash flow</span>
-            <strong class="@(summary.NetCashFlow >= 0 ? "positive" : "negative")">
-                @FormatMoney(summary.NetCashFlow)
-            </strong>
-        </article>
-        <article class="summary-card">
-            <span>Known balances</span>
-            <strong>@FormatKnownBalances(snapshot.Accounts)</strong>
-        </article>
-    </section>
-
-    <section class="content-grid">
-        <article class="panel">
+    <section class="account-workspace">
+        <article class="panel accounts-panel">
             <div class="panel-heading">
                 <div>
-                    <p class="eyebrow">Linked accounts</p>
+                    <p class="eyebrow">Your accounts</p>
                     <h2>Accounts</h2>
                 </div>
                 <span>@snapshot.Accounts.Count</span>
             </div>
-            <div class="account-list">
-                @foreach (var account in snapshot.Accounts)
-                {
-                    <div class="account-row">
-                        <div>
-                            <strong>@account.Name</strong>
-                            <span>@account.MaskedNumber</span>
-                        </div>
-                        <strong>@FormatOptionalMoney(account.Balance)</strong>
-                    </div>
-                }
+
+            @if (snapshot.Accounts.Count > 0)
+            {
+                <div class="account-list">
+                    @foreach (var account in snapshot.Accounts)
+                    {
+                        <button class="account-row @(account.Id == selectedAccountId ? "selected" : null)"
+                                @onclick="() => SelectAccount(account.Id)">
+                            <div>
+                                <strong>@account.Name</strong>
+                                <span>@FormatOptionalMoney(account.Balance)</span>
+                            </div>
+                            <span class="account-chevron">›</span>
+                        </button>
+                    }
+                </div>
+            }
+
+            <div class="add-account-form">
+                <label for="new-account-name">Add an account</label>
+                <div class="inline-form">
+                    <input id="new-account-name"
+                           placeholder="e.g. Everyday account"
+                           @bind="newAccountName"
+                           @bind:event="oninput"
+                           @onkeydown="HandleAddAccountKeyDown" />
+                    <button class="primary-button"
+                            @onclick="AddAccountAsync"
+                            disabled="@isWorking">
+                        Add
+                    </button>
+                </div>
             </div>
         </article>
 
-        <article class="panel transactions-panel">
-            <div class="panel-heading">
-                <div>
-                    <p class="eyebrow">Recent activity</p>
-                    <h2>Latest transactions</h2>
-                </div>
-                <span>@snapshot.Transactions.Count</span>
-            </div>
-            <div class="transaction-list">
-                @foreach (var transaction in snapshot.Transactions.OrderByDescending(item => item.PostedOn))
-                {
-                    <div class="transaction-row">
-                        <div class="transaction-date">
-                            <strong>@transaction.PostedOn.Day</strong>
-                            <span>@transaction.PostedOn.ToString("MMM")</span>
+        @if (SelectedAccount is null)
+        {
+            <section class="empty-state">
+                <div class="empty-state-icon">1</div>
+                <p class="eyebrow">First step</p>
+                <h2>Add your first account</h2>
+                <p>
+                    Give the account a useful name. Once selected, you can import
+                    its QIF transaction history.
+                </p>
+            </section>
+        }
+        else
+        {
+            <div class="account-detail">
+                <section class="selected-account-header">
+                    <div>
+                        <p class="eyebrow">Selected account</p>
+                        <div class="rename-form">
+                            <input aria-label="Account name"
+                                   @bind="editedAccountName"
+                                   @bind:event="oninput"
+                                   @onkeydown="HandleRenameKeyDown" />
+                            <button class="secondary-button"
+                                    @onclick="RenameAccountAsync"
+                                    disabled="@isWorking">
+                                Save name
+                            </button>
                         </div>
-                        <div class="transaction-description">
-                            <strong>@transaction.Description</strong>
-                            <span>@transaction.Category</span>
-                        </div>
-                        <strong class="@(transaction.Amount >= 0 ? "positive" : "negative")">
-                            @FormatSignedMoney(transaction.Amount)
-                        </strong>
                     </div>
-                }
+                    <button class="primary-button"
+                            @onclick="ImportQifAsync"
+                            disabled="@isWorking">
+                        @(isWorking ? "Working..." : "Import QIF")
+                    </button>
+                </section>
+
+                <section class="summary-grid">
+                    <article class="summary-card">
+                        <span>Money in</span>
+                        <strong class="positive">@FormatMoney(summary.Income)</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Money out</span>
+                        <strong class="negative">@FormatMoney(summary.Spending)</strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Net cash flow</span>
+                        <strong class="@(summary.NetCashFlow >= 0 ? "positive" : "negative")">
+                            @FormatMoney(summary.NetCashFlow)
+                        </strong>
+                    </article>
+                    <article class="summary-card">
+                        <span>Transactions</span>
+                        <strong>@SelectedTransactions.Count</strong>
+                    </article>
+                </section>
+
+                <article class="panel transactions-panel">
+                    <div class="panel-heading">
+                        <div>
+                            <p class="eyebrow">@SelectedAccount.Name</p>
+                            <h2>Transactions</h2>
+                        </div>
+                        <span>@snapshot.DataSourceDescription</span>
+                    </div>
+
+                    @if (SelectedTransactions.Count == 0)
+                    {
+                        <div class="transaction-empty-state">
+                            <strong>No transactions imported</strong>
+                            <span>Use Import QIF to add this account's transaction history.</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="transaction-list">
+                            @foreach (var transaction in SelectedTransactions)
+                            {
+                                <div class="transaction-row">
+                                    <div class="transaction-date">
+                                        <strong>@transaction.PostedOn.Day</strong>
+                                        <span>@transaction.PostedOn.ToString("MMM")</span>
+                                    </div>
+                                    <div class="transaction-description">
+                                        <strong>@transaction.Description</strong>
+                                        <span>@transaction.Category</span>
+                                    </div>
+                                    <strong class="@(transaction.Amount >= 0 ? "positive" : "negative")">
+                                        @FormatSignedMoney(transaction.Amount)
+                                    </strong>
+                                </div>
+                            }
+                        </div>
+                    }
+                </article>
             </div>
-        </article>
+        }
     </section>
 }
 
@@ -173,12 +215,25 @@ else
 
     private BankingSnapshot? snapshot;
     private TransactionSummary summary = new(0, 0, 0);
+    private string? selectedAccountId;
+    private string newAccountName = string.Empty;
+    private string editedAccountName = string.Empty;
     private string? errorMessage;
-    private string? importMessage;
+    private string? actionMessage;
     private string? updateError;
     private ApplicationUpdate? availableUpdate;
-    private bool isLoading;
+    private bool isWorking;
     private bool isInstallingUpdate;
+
+    private BankAccount? SelectedAccount =>
+        snapshot?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
+
+    private IReadOnlyList<BankTransaction> SelectedTransactions =>
+        snapshot?.Transactions
+            .Where(transaction => transaction.AccountId == selectedAccountId)
+            .OrderByDescending(transaction => transaction.PostedOn)
+            .ToArray()
+        ?? [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -186,30 +241,116 @@ else
         await CheckForUpdateAsync();
     }
 
-    private async Task LoadAsync()
+    private async Task LoadAsync(string? accountToSelect = null)
     {
-        isLoading = true;
         errorMessage = null;
 
         try
         {
             snapshot = await DataSource.GetSnapshotAsync();
-            summary = TransactionSummarizer.Summarize(snapshot.Transactions);
+            var desiredAccountId = accountToSelect ?? selectedAccountId;
+            selectedAccountId = snapshot.Accounts.Any(account => account.Id == desiredAccountId)
+                ? desiredAccountId
+                : snapshot.Accounts.FirstOrDefault()?.Id;
+            UpdateSelectedAccountState();
         }
         catch (Exception exception)
         {
-            errorMessage = $"Transactions could not be loaded: {exception.Message}";
+            errorMessage = $"Accounts could not be loaded: {exception.Message}";
+        }
+    }
+
+    private void SelectAccount(string accountId)
+    {
+        selectedAccountId = accountId;
+        actionMessage = null;
+        errorMessage = null;
+        UpdateSelectedAccountState();
+    }
+
+    private void UpdateSelectedAccountState()
+    {
+        editedAccountName = SelectedAccount?.Name ?? string.Empty;
+        summary = TransactionSummarizer.Summarize(SelectedTransactions);
+    }
+
+    private async Task AddAccountAsync()
+    {
+        var name = newAccountName.Trim();
+        if (name.Length == 0)
+        {
+            errorMessage = "Enter an account name first.";
+            return;
+        }
+
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+        var account = new BankAccount(
+            Guid.NewGuid().ToString("N"),
+            name,
+            "Manual account",
+            null,
+            "AUD");
+
+        try
+        {
+            await DataStore.AddAccountAsync(account);
+            newAccountName = string.Empty;
+            await LoadAsync(account.Id);
+            actionMessage = $"Added {account.Name}.";
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
         }
         finally
         {
-            isLoading = false;
+            isWorking = false;
+        }
+    }
+
+    private async Task RenameAccountAsync()
+    {
+        var account = SelectedAccount;
+        var name = editedAccountName.Trim();
+        if (account is null || name.Length == 0)
+        {
+            errorMessage = "Enter an account name first.";
+            return;
+        }
+
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+
+        try
+        {
+            await DataStore.RenameAccountAsync(account.Id, name);
+            await LoadAsync(account.Id);
+            actionMessage = $"Renamed the account to {name}.";
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isWorking = false;
         }
     }
 
     private async Task ImportQifAsync()
     {
+        var account = SelectedAccount;
+        if (account is null)
+        {
+            errorMessage = "Select an account before importing transactions.";
+            return;
+        }
+
         errorMessage = null;
-        importMessage = null;
+        actionMessage = null;
 
         using var selectedFile = await FilePicker.PickAsync();
         if (selectedFile is null)
@@ -217,17 +358,26 @@ else
             return;
         }
 
-        isLoading = true;
+        isWorking = true;
 
         try
         {
             var result = Parser.Parse(selectedFile.Content, selectedFile.FileName);
-            await DataStore.ReplaceSnapshotAsync(result.Snapshot);
-            snapshot = result.Snapshot;
-            summary = TransactionSummarizer.Summarize(snapshot.Transactions);
-            importMessage = result.Warnings.Count == 0
-                ? $"Imported {snapshot.Transactions.Count} transactions from {selectedFile.FileName}."
-                : $"Imported {snapshot.Transactions.Count} transactions with "
+            var transactions = result.Snapshot.Transactions
+                .Select(transaction => transaction with
+                {
+                    Id = $"{account.Id}:{transaction.Id}",
+                    AccountId = account.Id
+                })
+                .ToArray();
+            await DataStore.ImportTransactionsAsync(
+                account.Id,
+                transactions,
+                $"Last imported from {selectedFile.FileName}");
+            await LoadAsync(account.Id);
+            actionMessage = result.Warnings.Count == 0
+                ? $"Imported or updated {transactions.Length} transactions in {account.Name}."
+                : $"Imported or updated {transactions.Length} transactions with "
                     + $"{result.Warnings.Count} skipped records. {string.Join(" ", result.Warnings.Take(3))}";
         }
         catch (QifParseException exception)
@@ -240,7 +390,23 @@ else
         }
         finally
         {
-            isLoading = false;
+            isWorking = false;
+        }
+    }
+
+    private async Task HandleAddAccountKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await AddAccountAsync();
+        }
+    }
+
+    private async Task HandleRenameKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await RenameAccountAsync();
         }
     }
 
@@ -281,19 +447,7 @@ else
     private static string FormatMoney(decimal amount) => amount.ToString("C2");
 
     private static string FormatOptionalMoney(decimal? amount) =>
-        amount is null ? "Not supplied" : FormatMoney(amount.Value);
-
-    private static string FormatKnownBalances(IReadOnlyList<BankAccount> accounts)
-    {
-        var knownBalances = accounts
-            .Where(account => account.Balance.HasValue)
-            .Select(account => account.Balance!.Value)
-            .ToArray();
-
-        return knownBalances.Length == 0
-            ? "Not supplied by QIF"
-            : FormatMoney(knownBalances.Sum());
-    }
+        amount is null ? "Balance unavailable" : FormatMoney(amount.Value);
 
     private static string FormatSignedMoney(decimal amount) =>
         amount >= 0 ? $"+{amount:C2}" : amount.ToString("C2");

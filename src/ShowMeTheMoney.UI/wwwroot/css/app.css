@@ -18,7 +18,8 @@ body {
         #07110f;
 }
 
-button {
+button,
+input {
     font: inherit;
 }
 
@@ -233,6 +234,73 @@ h2 {
     margin-bottom: 1rem;
 }
 
+.account-workspace {
+    display: grid;
+    grid-template-columns: minmax(18rem, 0.65fr) minmax(32rem, 1.8fr);
+    gap: 1rem;
+    align-items: start;
+}
+
+.account-detail {
+    display: grid;
+    gap: 1rem;
+}
+
+.selected-account-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.2rem;
+    border: 1px solid #1d332c;
+    border-radius: 1rem;
+    background: rgba(13, 29, 24, 0.86);
+}
+
+.rename-form,
+.inline-form {
+    display: flex;
+    gap: 0.65rem;
+}
+
+.rename-form input {
+    min-width: min(28rem, 45vw);
+    font-size: 1.35rem;
+    font-weight: 750;
+}
+
+input {
+    min-width: 0;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid #2d5546;
+    border-radius: 0.65rem;
+    outline: none;
+    background: #091813;
+    color: #f2f8f5;
+}
+
+input:focus {
+    border-color: #52dfa0;
+    box-shadow: 0 0 0 3px rgba(82, 223, 160, 0.12);
+}
+
+.add-account-form {
+    display: grid;
+    gap: 0.65rem;
+    padding: 1.2rem;
+    border-top: 1px solid #1d332c;
+}
+
+.add-account-form label {
+    color: #9bc9b7;
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+.add-account-form input {
+    flex: 1;
+}
+
 .summary-card {
     display: flex;
     flex-direction: column;
@@ -292,6 +360,30 @@ h2 {
     border-bottom: 1px solid #172a24;
 }
 
+.account-row {
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid #172a24;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.account-row:hover,
+.account-row.selected {
+    background: rgba(66, 229, 155, 0.08);
+}
+
+.account-row.selected {
+    box-shadow: inset 3px 0 #42e59b;
+}
+
+.account-chevron {
+    color: #52dfa0 !important;
+    font-size: 1.5rem !important;
+}
+
 .account-row:last-child,
 .transaction-row:last-child {
     border-bottom: 0;
@@ -312,6 +404,22 @@ h2 {
 
 .transaction-date {
     text-align: center;
+}
+
+.transaction-empty-state {
+    display: flex;
+    min-height: 13rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 2rem;
+    color: #91a69e;
+    text-align: center;
+}
+
+.transaction-empty-state strong {
+    color: #f2f8f5;
 }
 
 .loading-card,
@@ -356,5 +464,22 @@ h2 {
 
     .content-grid {
         grid-template-columns: 1fr;
+    }
+
+    .account-workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .selected-account-header {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .rename-form {
+        flex-direction: column;
+    }
+
+    .rename-form input {
+        min-width: 0;
     }
 }

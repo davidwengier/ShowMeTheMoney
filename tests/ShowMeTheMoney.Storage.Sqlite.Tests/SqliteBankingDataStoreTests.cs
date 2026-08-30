@@ -78,6 +78,63 @@ public sealed class SqliteBankingDataStoreTests
         }
     }
 
+    [Fact]
+    public async Task AccountOperations_AddRenameAndImportIntoSelectedAccount()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var store = new SqliteBankingDataStore(databasePath);
+            var everyday = new BankAccount(
+                "everyday",
+                "Everyday",
+                "Manual account",
+                null,
+                "AUD");
+            var savings = new BankAccount(
+                "savings",
+                "Savings",
+                "Manual account",
+                null,
+                "AUD");
+            await store.AddAccountAsync(everyday, cancellationToken);
+            await store.AddAccountAsync(savings, cancellationToken);
+            await store.RenameAccountAsync("everyday", "Daily spending", cancellationToken);
+            var importedTransaction = new BankTransaction(
+                "everyday:transaction-1",
+                "everyday",
+                new DateOnly(2026, 8, 30),
+                "Groceries",
+                "Food",
+                -84.62m,
+                "AUD",
+                false);
+            await store.ImportTransactionsAsync(
+                "everyday",
+                [importedTransaction],
+                "Last imported from everyday.qif",
+                cancellationToken);
+            await store.ImportTransactionsAsync(
+                "everyday",
+                [importedTransaction with { Category = "Household" }],
+                "Last imported from everyday.qif",
+                cancellationToken);
+
+            var loaded = await store.GetSnapshotAsync(cancellationToken);
+
+            Assert.Equal(2, loaded.Accounts.Count);
+            Assert.Equal("Daily spending", loaded.Accounts[0].Name);
+            var transaction = Assert.Single(loaded.Transactions);
+            Assert.Equal("everyday", transaction.AccountId);
+            Assert.Equal("Household", transaction.Category);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
     private static string CreateDatabasePath() =>
         Path.Combine(
             Path.GetTempPath(),

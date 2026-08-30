@@ -8,8 +8,10 @@ The app imports bank transaction exports in Quicken Interchange Format (QIF),
 displays cash-flow summaries, and stores the imported snapshot locally.
 Before the first import it displays an empty state with instructions.
 
-Use **Import QIF** in the app, then select the `.qif` file downloaded from
-your bank. Australian `day/month/year` dates, bank, cash, credit card, asset and
+Add and select an account in the app, then use **Import QIF** to select the
+`.qif` file downloaded from your bank. Accounts can be renamed at any time and
+reimporting a file updates matching transactions without replacing other
+accounts. Australian `day/month/year` dates, bank, cash, credit card, asset and
 liability QIF account types are supported. QIF does not normally contain a
 current account balance, so imported accounts show that their balance was not
 supplied.
