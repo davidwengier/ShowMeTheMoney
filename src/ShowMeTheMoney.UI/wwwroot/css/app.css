@@ -350,8 +350,20 @@ input:disabled {
     border-bottom: 1px solid #1d332c;
 }
 
-.panel-heading > span {
+.panel-heading > span,
+.transaction-heading-actions > span {
     color: #91a69e;
+}
+
+.transaction-heading-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.compact-button {
+    padding: 0.55rem 0.7rem;
+    font-size: 0.78rem;
 }
 
 .account-row,
@@ -399,6 +411,28 @@ input:disabled {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
+}
+
+.transaction-category {
+    width: fit-content;
+    max-width: 100%;
+    padding: 0.2rem 1.6rem 0.2rem 0;
+    border: 0;
+    outline: none;
+    background: transparent;
+    color: #91a69e;
+    font: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+}
+
+.transaction-category:focus {
+    color: #d7e9e2;
+}
+
+.transaction-category:disabled {
+    cursor: wait;
+    opacity: 0.65;
 }
 
 .transaction-row {
@@ -494,6 +528,11 @@ input:disabled {
 
     .selected-account-header {
         align-items: stretch;
+        flex-direction: column;
+    }
+
+    .transaction-heading-actions {
+        align-items: flex-end;
         flex-direction: column;
     }
 

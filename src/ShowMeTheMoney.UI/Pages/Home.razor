@@ -165,7 +165,14 @@ else
                             <p class="eyebrow">@SelectedAccount.Name</p>
                             <h2>Transactions</h2>
                         </div>
-                        <span>@snapshot.DataSourceDescription</span>
+                        <div class="transaction-heading-actions">
+                            <span>@snapshot.DataSourceDescription</span>
+                            <button class="secondary-button compact-button"
+                                    @onclick="ApplyCategoryRulesAsync"
+                                    disabled="@isWorking">
+                                Apply category rules
+                            </button>
+                        </div>
                     </div>
 
                     @if (SelectedTransactions.Count == 0)
@@ -195,7 +202,16 @@ else
                                     </div>
                                     <div class="transaction-description">
                                         <strong>@transaction.Description</strong>
-                                        <span>@transaction.Category</span>
+                                        <select class="transaction-category"
+                                                aria-label="@($"Category for {transaction.Description}")"
+                                                value="@transaction.Category"
+                                                @onchange="args => SetTransactionCategoryAsync(transaction, args)"
+                                                disabled="@isWorking">
+                                            @foreach (var category in GetCategoryOptions(transaction.Category))
+                                            {
+                                                <option value="@category">@category</option>
+                                            }
+                                        </select>
                                     </div>
                                     <strong class="positive numeric-cell">
                                         @(transaction.Amount > 0 ? FormatMoney(transaction.Amount) : null)
@@ -440,6 +456,68 @@ else
         }
     }
 
+    private async Task SetTransactionCategoryAsync(
+        BankTransaction transaction,
+        ChangeEventArgs args)
+    {
+        var category = args.Value?.ToString()?.Trim();
+        if (string.IsNullOrWhiteSpace(category) || category == transaction.Category)
+        {
+            return;
+        }
+
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+
+        try
+        {
+            await DataStore.SetTransactionCategoryAsync(transaction.Id, category);
+            await LoadAsync(transaction.AccountId);
+            actionMessage =
+                $"{transaction.Description} and matching transactions are now {category}.";
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task ApplyCategoryRulesAsync()
+    {
+        var account = SelectedAccount;
+        if (account is null)
+        {
+            return;
+        }
+
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+
+        try
+        {
+            var updatedCount = await DataStore.ApplyTransactionCategoryRulesAsync(account.Id);
+            await LoadAsync(account.Id);
+            actionMessage = updatedCount == 0
+                ? "No additional transactions matched the category rules."
+                : $"Categorised {updatedCount} transaction"
+                    + (updatedCount == 1 ? "." : "s.");
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
     private async Task HandleAddAccountKeyDown(KeyboardEventArgs args)
     {
         if (args.Key == "Enter")
@@ -503,5 +581,10 @@ else
 
     private static string FormatOptionalMoney(decimal? amount) =>
         amount is null ? "Balance unavailable" : FormatMoney(amount.Value);
+
+    private static IReadOnlyList<string> GetCategoryOptions(string currentCategory) =>
+        TransactionCategories.All.Contains(currentCategory, StringComparer.Ordinal)
+            ? TransactionCategories.All
+            : [currentCategory, .. TransactionCategories.All];
 
 }

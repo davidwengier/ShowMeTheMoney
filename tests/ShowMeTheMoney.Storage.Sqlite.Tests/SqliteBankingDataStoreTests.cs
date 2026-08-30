@@ -140,6 +140,116 @@ public sealed class SqliteBankingDataStoreTests
         }
     }
 
+    [Fact]
+    public async Task CategoryRules_CategorizeImportsAndLearnFromCorrections()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var store = new SqliteBankingDataStore(databasePath);
+            await store.AddAccountAsync(
+                new BankAccount("everyday", "Everyday", "Manual account", null, "AUD"),
+                cancellationToken);
+            var woolworths = CreateTransaction(
+                "woolworths",
+                "Woolworths Metro",
+                TransactionCategories.Uncategorised);
+            var coffeeClub = CreateTransaction(
+                "coffee-1",
+                "Coffee-Club",
+                TransactionCategories.Uncategorised);
+            var matchingCoffeeClub = CreateTransaction(
+                "coffee-2",
+                "coffee club",
+                TransactionCategories.Uncategorised);
+
+            await store.ImportTransactionsAsync(
+                "everyday",
+                [woolworths, coffeeClub, matchingCoffeeClub],
+                "Imported transactions",
+                cancellationToken);
+            await store.SetTransactionCategoryAsync(
+                coffeeClub.Id,
+                "Dining",
+                cancellationToken);
+            await store.ImportTransactionsAsync(
+                "everyday",
+                [matchingCoffeeClub with { Category = TransactionCategories.Uncategorised }],
+                "Reimported transactions",
+                cancellationToken);
+
+            var loaded = await store.GetSnapshotAsync(cancellationToken);
+
+            Assert.Equal(
+                "Groceries",
+                loaded.Transactions.Single(transaction => transaction.Id == woolworths.Id).Category);
+            Assert.All(
+                loaded.Transactions.Where(transaction => transaction.Description.Contains(
+                    "coffee",
+                    StringComparison.OrdinalIgnoreCase)),
+                transaction => Assert.Equal("Dining", transaction.Category));
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task ApplyTransactionCategoryRulesAsync_CategorizesExistingTransactions()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var account = new BankAccount(
+                "everyday",
+                "Everyday",
+                "Manual account",
+                null,
+                "AUD");
+            var transaction = CreateTransaction(
+                "netflix",
+                "Netflix.com",
+                TransactionCategories.Uncategorised);
+            var store = new SqliteBankingDataStore(databasePath);
+            await store.ReplaceSnapshotAsync(
+                new BankingSnapshot(
+                    "Bank",
+                    "Existing data",
+                    [account],
+                    [transaction]),
+                cancellationToken);
+
+            var updatedCount = await store.ApplyTransactionCategoryRulesAsync(
+                account.Id,
+                cancellationToken);
+            var loaded = await store.GetSnapshotAsync(cancellationToken);
+
+            Assert.Equal(1, updatedCount);
+            Assert.Equal("Entertainment", Assert.Single(loaded.Transactions).Category);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    private static BankTransaction CreateTransaction(
+        string id,
+        string description,
+        string category) =>
+        new(
+            id,
+            "everyday",
+            new DateOnly(2026, 8, 30),
+            description,
+            category,
+            -10m,
+            "AUD",
+            false);
+
     private static string CreateDatabasePath() =>
         Path.Combine(
             Path.GetTempPath(),

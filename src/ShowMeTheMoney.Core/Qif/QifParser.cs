@@ -103,7 +103,7 @@ public sealed class QifParser
                 transaction.Date,
                 GetDescription(transaction),
                 string.IsNullOrWhiteSpace(transaction.Category)
-                    ? "Uncategorised"
+                    ? TransactionCategories.Uncategorised
                     : transaction.Category,
                 transaction.Amount,
                 "AUD",

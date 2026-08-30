@@ -12,6 +12,15 @@ public interface IBankingDataStore : IBankingDataSource
         decimal? balance,
         CancellationToken cancellationToken = default);
 
+    Task SetTransactionCategoryAsync(
+        string transactionId,
+        string category,
+        CancellationToken cancellationToken = default);
+
+    Task<int> ApplyTransactionCategoryRulesAsync(
+        string accountId,
+        CancellationToken cancellationToken = default);
+
     Task ImportTransactionsAsync(
         string accountId,
         IReadOnlyList<BankTransaction> transactions,
