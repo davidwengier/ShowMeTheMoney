@@ -670,6 +670,54 @@ input:disabled {
     color: #f2f8f5;
 }
 
+.dialog-backdrop {
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    display: grid;
+    padding: 1.5rem;
+    place-items: center;
+    background: rgba(3, 9, 7, 0.78);
+}
+
+.category-dialog {
+    width: min(30rem, 100%);
+    padding: 1.4rem;
+    border: 1px solid #2d5546;
+    border-radius: 1rem;
+    background: #0d1d18;
+    box-shadow: 0 1.5rem 5rem rgba(0, 0, 0, 0.45);
+}
+
+.category-dialog .muted {
+    line-height: 1.5;
+}
+
+.category-dialog label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.category-dialog label > span {
+    color: #9bc9b7;
+    font-size: 0.75rem;
+    font-weight: 750;
+}
+
+.dialog-error {
+    display: block;
+    margin-top: 0.65rem;
+    color: #ffad99;
+    font-size: 0.82rem;
+}
+
+.dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.65rem;
+    margin-top: 1.2rem;
+}
+
 .loading-card,
 .message {
     padding: 1rem;

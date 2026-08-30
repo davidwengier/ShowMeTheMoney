@@ -17,7 +17,6 @@ public static class TransactionCategories
         "Shopping",
         "Transfers",
         "Transport",
-        "Utilities",
-        "Other"
+        "Utilities"
     ];
 }

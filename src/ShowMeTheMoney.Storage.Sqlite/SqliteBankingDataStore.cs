@@ -401,7 +401,14 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
                 category TEXT NOT NULL
             );
 
-            PRAGMA user_version = 2;
+            UPDATE transactions
+            SET category = 'Uncategorised'
+            WHERE category COLLATE NOCASE = 'Other';
+
+            DELETE FROM category_rules
+            WHERE category COLLATE NOCASE = 'Other';
+
+            PRAGMA user_version = 3;
             """;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }

@@ -205,12 +205,13 @@ else
                                         <select class="transaction-category"
                                                 aria-label="@($"Category for {transaction.Description}")"
                                                 value="@transaction.Category"
-                                                @onchange="args => SetTransactionCategoryAsync(transaction, args)"
+                                                @onchange="args => HandleTransactionCategoryChangeAsync(transaction, args)"
                                                 disabled="@isWorking">
                                             @foreach (var category in GetCategoryOptions(transaction.Category))
                                             {
                                                 <option value="@category">@category</option>
                                             }
+                                            <option value="@NewCategoryOption">New...</option>
                                         </select>
                                     </div>
                                     <strong class="positive numeric-cell">
@@ -237,7 +238,50 @@ else
     <div class="message error-message update-message">@updateError</div>
 }
 
+@if (transactionForNewCategory is not null)
+{
+    <div class="dialog-backdrop">
+        <section class="category-dialog"
+                 role="dialog"
+                 aria-modal="true"
+                 aria-labelledby="new-category-title">
+            <p class="eyebrow">Custom category</p>
+            <h2 id="new-category-title">Create a category</h2>
+            <p class="muted">
+                Categorise <strong>@transactionForNewCategory.Description</strong>
+                and matching transactions as:
+            </p>
+            <label>
+                <span>Category name</span>
+                <input autofocus
+                       aria-label="New category name"
+                       @bind="newCategoryName"
+                       @bind:event="oninput"
+                       @onkeydown="HandleNewCategoryKeyDown" />
+            </label>
+            @if (newCategoryError is not null)
+            {
+                <span class="dialog-error">@newCategoryError</span>
+            }
+            <div class="dialog-actions">
+                <button class="secondary-button"
+                        @onclick="CancelNewCategory"
+                        disabled="@isWorking">
+                    Cancel
+                </button>
+                <button class="primary-button"
+                        @onclick="SaveNewCategoryAsync"
+                        disabled="@isWorking">
+                    Create category
+                </button>
+            </div>
+        </section>
+    </div>
+}
+
 @code {
+    private const string NewCategoryOption = "__new_category__";
+
     [Inject]
     private IBankingDataSource DataSource { get; set; } = null!;
 
@@ -265,6 +309,9 @@ else
     private bool isWorking;
     private bool isInstallingUpdate;
     private bool isEditingAccount;
+    private BankTransaction? transactionForNewCategory;
+    private string newCategoryName = string.Empty;
+    private string? newCategoryError;
 
     private BankAccount? SelectedAccount =>
         snapshot?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
@@ -456,7 +503,7 @@ else
         }
     }
 
-    private async Task SetTransactionCategoryAsync(
+    private async Task HandleTransactionCategoryChangeAsync(
         BankTransaction transaction,
         ChangeEventArgs args)
     {
@@ -466,6 +513,21 @@ else
             return;
         }
 
+        if (category == NewCategoryOption)
+        {
+            transactionForNewCategory = transaction;
+            newCategoryName = string.Empty;
+            newCategoryError = null;
+            return;
+        }
+
+        await SaveTransactionCategoryAsync(transaction, category);
+    }
+
+    private async Task<bool> SaveTransactionCategoryAsync(
+        BankTransaction transaction,
+        string category)
+    {
         isWorking = true;
         errorMessage = null;
         actionMessage = null;
@@ -476,14 +538,68 @@ else
             await LoadAsync(transaction.AccountId);
             actionMessage =
                 $"{transaction.Description} and matching transactions are now {category}.";
+            return true;
         }
         catch (InvalidOperationException exception)
         {
             errorMessage = exception.Message;
+            return false;
         }
         finally
         {
             isWorking = false;
+        }
+    }
+
+    private async Task SaveNewCategoryAsync()
+    {
+        if (isWorking)
+        {
+            return;
+        }
+
+        var transaction = transactionForNewCategory;
+        var category = newCategoryName.Trim();
+        if (transaction is null)
+        {
+            return;
+        }
+
+        if (category.Length == 0)
+        {
+            newCategoryError = "Enter a category name.";
+            return;
+        }
+
+        if (category.Equals("Other", StringComparison.OrdinalIgnoreCase)
+            || category.Equals("New...", StringComparison.OrdinalIgnoreCase))
+        {
+            newCategoryError = "Choose a more specific category name.";
+            return;
+        }
+
+        if (await SaveTransactionCategoryAsync(transaction, category))
+        {
+            CancelNewCategory();
+        }
+    }
+
+    private void CancelNewCategory()
+    {
+        transactionForNewCategory = null;
+        newCategoryName = string.Empty;
+        newCategoryError = null;
+    }
+
+    private async Task HandleNewCategoryKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await SaveNewCategoryAsync();
+        }
+        else if (args.Key == "Escape")
+        {
+            CancelNewCategory();
         }
     }
 

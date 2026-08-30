@@ -171,7 +171,7 @@ public sealed class SqliteBankingDataStoreTests
                 cancellationToken);
             await store.SetTransactionCategoryAsync(
                 coffeeClub.Id,
-                "Dining",
+                "Coffee",
                 cancellationToken);
             await store.ImportTransactionsAsync(
                 "everyday",
@@ -190,10 +190,10 @@ public sealed class SqliteBankingDataStoreTests
                 loaded.Transactions.Where(transaction => transaction.Description.Contains(
                     "coffee",
                     StringComparison.OrdinalIgnoreCase)),
-                transaction => Assert.Equal("Dining", transaction.Category));
+                transaction => Assert.Equal("Coffee", transaction.Category));
             var learnedRule = Assert.Single(learnedRules);
             Assert.Equal("COFFEE CLUB", learnedRule.Pattern);
-            Assert.Equal("Dining", learnedRule.Category);
+            Assert.Equal("Coffee", learnedRule.Category);
             Assert.Equal(TransactionCategoryRuleMatch.ExactDescription, learnedRule.Match);
         }
         finally

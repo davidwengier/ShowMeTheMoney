@@ -71,7 +71,8 @@ public static class TransactionCategoryRules
 
         if (!transaction.Category.Equals(
                 TransactionCategories.Uncategorised,
-                StringComparison.OrdinalIgnoreCase))
+                StringComparison.OrdinalIgnoreCase)
+            && !transaction.Category.Equals("Other", StringComparison.OrdinalIgnoreCase))
         {
             return transaction.Category;
         }

@@ -78,6 +78,27 @@ public sealed class TransactionCategoryRulesTests
         Assert.Equal(TransactionCategories.Uncategorised, category);
     }
 
+    [Fact]
+    public void Categories_UseNewCategoryFlowInsteadOfOther()
+    {
+        Assert.DoesNotContain("Other", TransactionCategories.All);
+    }
+
+    [Fact]
+    public void Categorize_OtherIsTreatedAsUncategorised()
+    {
+        var transaction = CreateTransaction("Unknown merchant", -12m) with
+        {
+            Category = "Other"
+        };
+
+        var category = TransactionCategoryRules.Categorize(
+            transaction,
+            new Dictionary<string, string>());
+
+        Assert.Equal(TransactionCategories.Uncategorised, category);
+    }
+
     private static BankTransaction CreateTransaction(string description, decimal amount) =>
         new(
             "transaction",
