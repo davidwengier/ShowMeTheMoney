@@ -6,9 +6,10 @@ public interface IBankingDataStore : IBankingDataSource
         BankAccount account,
         CancellationToken cancellationToken = default);
 
-    Task RenameAccountAsync(
+    Task UpdateAccountAsync(
         string accountId,
         string name,
+        decimal? balance,
         CancellationToken cancellationToken = default);
 
     Task ImportTransactionsAsync(

@@ -109,15 +109,26 @@ else
                 <section class="selected-account-header">
                     <div>
                         <p class="eyebrow">Selected account</p>
-                        <div class="rename-form">
-                            <input aria-label="Account name"
-                                   @bind="editedAccountName"
-                                   @bind:event="oninput"
-                                   @onkeydown="HandleRenameKeyDown" />
+                        <div class="account-settings-form">
+                            <label>
+                                <span>Account name</span>
+                                <input aria-label="Account name"
+                                       @bind="editedAccountName"
+                                       @bind:event="oninput"
+                                       @onkeydown="HandleAccountKeyDown" />
+                            </label>
+                            <label>
+                                <span>Current balance</span>
+                                <input type="number"
+                                       step="0.01"
+                                       aria-label="Current balance"
+                                       @bind="editedBalance"
+                                       @onkeydown="HandleAccountKeyDown" />
+                            </label>
                             <button class="secondary-button"
-                                    @onclick="RenameAccountAsync"
+                                    @onclick="SaveAccountAsync"
                                     disabled="@isWorking">
-                                Save name
+                                Save account
                             </button>
                         </div>
                     </div>
@@ -129,6 +140,10 @@ else
                 </section>
 
                 <section class="summary-grid">
+                    <article class="summary-card">
+                        <span>Current balance</span>
+                        <strong>@FormatOptionalMoney(SelectedAccount.Balance)</strong>
+                    </article>
                     <article class="summary-card">
                         <span>Money in</span>
                         <strong class="positive">@FormatMoney(summary.Income)</strong>
@@ -142,10 +157,6 @@ else
                         <strong class="@(summary.NetCashFlow >= 0 ? "positive" : "negative")">
                             @FormatMoney(summary.NetCashFlow)
                         </strong>
-                    </article>
-                    <article class="summary-card">
-                        <span>Transactions</span>
-                        <strong>@SelectedTransactions.Count</strong>
                     </article>
                 </section>
 
@@ -167,9 +178,17 @@ else
                     }
                     else
                     {
+                        <div class="transaction-header">
+                            <span>Date</span>
+                            <span>Description</span>
+                            <span>Credit</span>
+                            <span>Debit</span>
+                            <span>Balance</span>
+                        </div>
                         <div class="transaction-list">
-                            @foreach (var transaction in SelectedTransactions)
+                            @foreach (var entry in SelectedLedger)
                             {
+                                var transaction = entry.Transaction;
                                 <div class="transaction-row">
                                     <div class="transaction-date">
                                         <strong>@transaction.PostedOn.Day</strong>
@@ -179,8 +198,14 @@ else
                                         <strong>@transaction.Description</strong>
                                         <span>@transaction.Category</span>
                                     </div>
-                                    <strong class="@(transaction.Amount >= 0 ? "positive" : "negative")">
-                                        @FormatSignedMoney(transaction.Amount)
+                                    <strong class="positive numeric-cell">
+                                        @(transaction.Amount > 0 ? FormatMoney(transaction.Amount) : null)
+                                    </strong>
+                                    <strong class="negative numeric-cell">
+                                        @(transaction.Amount < 0 ? FormatMoney(-transaction.Amount) : null)
+                                    </strong>
+                                    <strong class="numeric-cell">
+                                        @FormatOptionalMoney(entry.RunningBalance)
                                     </strong>
                                 </div>
                             }
@@ -218,6 +243,7 @@ else
     private string? selectedAccountId;
     private string newAccountName = string.Empty;
     private string editedAccountName = string.Empty;
+    private decimal? editedBalance;
     private string? errorMessage;
     private string? actionMessage;
     private string? updateError;
@@ -234,6 +260,9 @@ else
             .OrderByDescending(transaction => transaction.PostedOn)
             .ToArray()
         ?? [];
+
+    private IReadOnlyList<TransactionLedgerEntry> SelectedLedger =>
+        TransactionLedger.Build(SelectedTransactions, SelectedAccount?.Balance);
 
     protected override async Task OnInitializedAsync()
     {
@@ -271,6 +300,7 @@ else
     private void UpdateSelectedAccountState()
     {
         editedAccountName = SelectedAccount?.Name ?? string.Empty;
+        editedBalance = SelectedAccount?.Balance;
         summary = TransactionSummarizer.Summarize(SelectedTransactions);
     }
 
@@ -310,7 +340,7 @@ else
         }
     }
 
-    private async Task RenameAccountAsync()
+    private async Task SaveAccountAsync()
     {
         var account = SelectedAccount;
         var name = editedAccountName.Trim();
@@ -326,9 +356,9 @@ else
 
         try
         {
-            await DataStore.RenameAccountAsync(account.Id, name);
+            await DataStore.UpdateAccountAsync(account.Id, name, editedBalance);
             await LoadAsync(account.Id);
-            actionMessage = $"Renamed the account to {name}.";
+            actionMessage = $"Saved {name}.";
         }
         catch (InvalidOperationException exception)
         {
@@ -402,11 +432,11 @@ else
         }
     }
 
-    private async Task HandleRenameKeyDown(KeyboardEventArgs args)
+    private async Task HandleAccountKeyDown(KeyboardEventArgs args)
     {
         if (args.Key == "Enter")
         {
-            await RenameAccountAsync();
+            await SaveAccountAsync();
         }
     }
 
@@ -449,6 +479,4 @@ else
     private static string FormatOptionalMoney(decimal? amount) =>
         amount is null ? "Balance unavailable" : FormatMoney(amount.Value);
 
-    private static string FormatSignedMoney(decimal amount) =>
-        amount >= 0 ? $"+{amount:C2}" : amount.ToString("C2");
 }

@@ -13,8 +13,9 @@ Add and select an account in the app, then use **Import QIF** to select the
 reimporting a file updates matching transactions without replacing other
 accounts. Australian `day/month/year` dates, bank, cash, credit card, asset and
 liability QIF account types are supported. QIF does not normally contain a
-current account balance, so imported accounts show that their balance was not
-supplied.
+current account balance, so enter the current balance on the selected account.
+The app works backward from that value to show credit, debit and running-balance
+columns for imported transactions.
 
 Imported data is stored at:
 

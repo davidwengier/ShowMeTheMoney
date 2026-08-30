@@ -257,16 +257,31 @@ h2 {
     background: rgba(13, 29, 24, 0.86);
 }
 
-.rename-form,
 .inline-form {
     display: flex;
     gap: 0.65rem;
 }
 
-.rename-form input {
-    min-width: min(28rem, 45vw);
-    font-size: 1.35rem;
+.account-settings-form {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1fr) minmax(10rem, 0.55fr) auto;
+    gap: 0.65rem;
+    align-items: end;
+}
+
+.account-settings-form label {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.account-settings-form label > span {
+    color: #9bc9b7;
+    font-size: 0.75rem;
     font-weight: 750;
+}
+
+.account-settings-form input {
+    width: 100%;
 }
 
 input {
@@ -399,7 +414,29 @@ input:focus {
 
 .transaction-row {
     display: grid;
-    grid-template-columns: 3rem 1fr auto;
+    grid-template-columns: 4rem minmax(14rem, 1fr) minmax(7rem, auto) minmax(7rem, auto) minmax(8rem, auto);
+}
+
+.transaction-header {
+    display: grid;
+    grid-template-columns: 4rem minmax(14rem, 1fr) minmax(7rem, auto) minmax(7rem, auto) minmax(8rem, auto);
+    gap: 1rem;
+    padding: 0.65rem 1.2rem;
+    border-bottom: 1px solid #1d332c;
+    color: #718b81;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.transaction-header span:nth-child(n + 3) {
+    text-align: right;
+}
+
+.numeric-cell {
+    text-align: right;
+    white-space: nowrap;
 }
 
 .transaction-date {
@@ -475,11 +512,7 @@ input:focus {
         flex-direction: column;
     }
 
-    .rename-form {
-        flex-direction: column;
-    }
-
-    .rename-form input {
-        min-width: 0;
+    .account-settings-form {
+        grid-template-columns: 1fr;
     }
 }

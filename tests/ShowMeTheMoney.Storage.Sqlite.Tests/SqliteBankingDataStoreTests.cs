@@ -100,7 +100,11 @@ public sealed class SqliteBankingDataStoreTests
                 "AUD");
             await store.AddAccountAsync(everyday, cancellationToken);
             await store.AddAccountAsync(savings, cancellationToken);
-            await store.RenameAccountAsync("everyday", "Daily spending", cancellationToken);
+            await store.UpdateAccountAsync(
+                "everyday",
+                "Daily spending",
+                987.65m,
+                cancellationToken);
             var importedTransaction = new BankTransaction(
                 "everyday:transaction-1",
                 "everyday",
@@ -125,6 +129,7 @@ public sealed class SqliteBankingDataStoreTests
 
             Assert.Equal(2, loaded.Accounts.Count);
             Assert.Equal("Daily spending", loaded.Accounts[0].Name);
+            Assert.Equal(987.65m, loaded.Accounts[0].Balance);
             var transaction = Assert.Single(loaded.Transactions);
             Assert.Equal("everyday", transaction.AccountId);
             Assert.Equal("Household", transaction.Category);

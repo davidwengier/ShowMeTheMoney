@@ -124,9 +124,10 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         }
     }
 
-    public async Task RenameAccountAsync(
+    public async Task UpdateAccountAsync(
         string accountId,
         string name,
+        decimal? balance,
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(accountId);
@@ -138,8 +139,18 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
             await using var connection = await OpenConnectionAsync(cancellationToken);
             await EnsureSchemaAsync(connection, cancellationToken);
             await using var command = connection.CreateCommand();
-            command.CommandText = "UPDATE accounts SET name = $name WHERE id = $id;";
+            command.CommandText =
+                """
+                UPDATE accounts
+                SET name = $name, balance = $balance
+                WHERE id = $id;
+                """;
             command.Parameters.AddWithValue("$name", name.Trim());
+            command.Parameters.AddWithValue(
+                "$balance",
+                balance is null
+                    ? DBNull.Value
+                    : FormatDecimal(balance.Value));
             command.Parameters.AddWithValue("$id", accountId);
 
             if (await command.ExecuteNonQueryAsync(cancellationToken) == 0)
