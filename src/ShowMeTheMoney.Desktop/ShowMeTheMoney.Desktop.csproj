@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\ShowMeTheMoney.Core\ShowMeTheMoney.Core.csproj" />
+    <ProjectReference Include="..\ShowMeTheMoney.Storage.Sqlite\ShowMeTheMoney.Storage.Sqlite.csproj" />
     <ProjectReference Include="..\ShowMeTheMoney.UI\ShowMeTheMoney.UI.csproj" />
   </ItemGroup>
 

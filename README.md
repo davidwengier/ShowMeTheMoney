@@ -17,8 +17,11 @@ supplied.
 Imported data is stored at:
 
 ```text
-%LocalAppData%\ShowMeTheMoney\banking-snapshot.json
+%LocalAppData%\ShowMeTheMoney\show-me-the-money.db
 ```
+
+Existing JSON data from earlier versions is migrated into SQLite automatically
+and the legacy JSON file is removed after a successful migration.
 
 ## Run
 

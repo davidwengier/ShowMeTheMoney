@@ -2,9 +2,11 @@
   <Folder Name="/src/">
     <Project Path="src/ShowMeTheMoney.Core/ShowMeTheMoney.Core.csproj" />
     <Project Path="src/ShowMeTheMoney.Desktop/ShowMeTheMoney.Desktop.csproj" />
+    <Project Path="src/ShowMeTheMoney.Storage.Sqlite/ShowMeTheMoney.Storage.Sqlite.csproj" />
     <Project Path="src/ShowMeTheMoney.UI/ShowMeTheMoney.UI.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ShowMeTheMoney.Core.Tests/ShowMeTheMoney.Core.Tests.csproj" />
+    <Project Path="tests/ShowMeTheMoney.Storage.Sqlite.Tests/ShowMeTheMoney.Storage.Sqlite.Tests.csproj" />
   </Folder>
 </Solution>

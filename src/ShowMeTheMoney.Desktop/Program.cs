@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using ShowMeTheMoney.Core.Banking;
 using ShowMeTheMoney.Core.Qif;
+using ShowMeTheMoney.Storage.Sqlite;
 using ShowMeTheMoney.UI.Services;
 using Velopack;
 
@@ -17,8 +18,17 @@ internal static class Program
         var appDataDirectory = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "ShowMeTheMoney");
-        var dataPath = Path.Combine(appDataDirectory, "banking-snapshot.json");
-        var dataStore = new JsonBankingDataStore(dataPath);
+        var databasePath = Environment.GetEnvironmentVariable("SHOW_ME_THE_MONEY_DATABASE");
+        if (string.IsNullOrWhiteSpace(databasePath))
+        {
+            databasePath = Path.Combine(appDataDirectory, "show-me-the-money.db");
+        }
+
+        var dataStore = new SqliteBankingDataStore(databasePath);
+        LegacyJsonSnapshotMigrator.MigrateAsync(
+            Path.Combine(appDataDirectory, "banking-snapshot.json"),
+            databasePath,
+            dataStore).GetAwaiter().GetResult();
 
         var services = new ServiceCollection();
         services.AddWindowsFormsBlazorWebView();
