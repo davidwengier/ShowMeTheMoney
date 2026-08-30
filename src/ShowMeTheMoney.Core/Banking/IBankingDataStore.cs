@@ -17,6 +17,25 @@ public interface IBankingDataStore : IBankingDataSource
         string category,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<TransactionCategory>> GetTransactionCategoriesAsync(
+        CancellationToken cancellationToken = default);
+
+    Task AddTransactionCategoryAsync(
+        string name,
+        CancellationToken cancellationToken = default);
+
+    Task RenameTransactionCategoryAsync(
+        string currentName,
+        string newName,
+        CancellationToken cancellationToken = default);
+
+    Task DeleteTransactionCategoryAsync(
+        string name,
+        CancellationToken cancellationToken = default);
+
+    Task<UncategorisedTransaction?> GetRandomUncategorisedTransactionAsync(
+        CancellationToken cancellationToken = default);
+
     Task<int> ApplyTransactionCategoryRulesAsync(
         string accountId,
         CancellationToken cancellationToken = default);

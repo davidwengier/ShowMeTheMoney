@@ -1,0 +1,378 @@
+@page "/categories"
+
+<PageTitle>Categories - Show Me The Money</PageTitle>
+
+<section class="hero">
+    <div>
+        <p class="eyebrow">Organise your transactions</p>
+        <h1>Categories</h1>
+        <p class="hero-copy">
+            Add and manage custom categories, then quickly classify one
+            uncategorised transaction at a time.
+        </p>
+    </div>
+</section>
+
+@if (actionMessage is not null)
+{
+    <div class="message import-message">@actionMessage</div>
+}
+
+@if (errorMessage is not null)
+{
+    <div class="message error-message">@errorMessage</div>
+}
+else if (categories is null)
+{
+    <div class="loading-card">Loading categories...</div>
+}
+else
+{
+    <section class="category-page-grid">
+        <article class="panel category-review-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Quick review</p>
+                    <h2>Random uncategorised transaction</h2>
+                </div>
+            </div>
+
+            @if (uncategorisedTransaction is null)
+            {
+                <div class="category-review-empty">
+                    <strong>Everything is categorised</strong>
+                    <span>There are no uncategorised transactions to review.</span>
+                </div>
+            }
+            else
+            {
+                var transaction = uncategorisedTransaction.Transaction;
+                <div class="category-review-card">
+                    <div class="category-review-details">
+                        <span>
+                            @uncategorisedTransaction.AccountName
+                            &middot;
+                            @transaction.PostedOn.ToString("d MMM yyyy")
+                        </span>
+                        <strong>@transaction.Description</strong>
+                        <span class="@(transaction.Amount >= 0 ? "positive" : "negative")">
+                            @FormatMoney(transaction.Amount)
+                        </span>
+                    </div>
+                    <div class="category-review-action">
+                        <label>
+                            <span>Category</span>
+                            <select @bind="selectedReviewCategory" disabled="@isWorking">
+                                <option value="">Choose a category</option>
+                                @foreach (var category in categories.Where(
+                                    category => category.Name != TransactionCategories.Uncategorised))
+                                {
+                                    <option value="@category.Name">@category.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <button class="primary-button"
+                                @onclick="CategoriseRandomTransactionAsync"
+                                disabled="@isWorking">
+                            Categorise and show another
+                        </button>
+                    </div>
+                </div>
+            }
+        </article>
+
+        <article class="panel categories-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Available choices</p>
+                    <h2>All categories</h2>
+                </div>
+                <span>@categories.Count</span>
+            </div>
+
+            <div class="add-category-form">
+                <label for="new-category-name">Add a custom category</label>
+                <div class="inline-form">
+                    <input id="new-category-name"
+                           placeholder="e.g. Pets"
+                           @bind="newCategoryName"
+                           @bind:event="oninput"
+                           @onkeydown="HandleAddCategoryKeyDown" />
+                    <button class="primary-button"
+                            @onclick="AddCategoryAsync"
+                            disabled="@isWorking">
+                        Add
+                    </button>
+                </div>
+            </div>
+
+            <div class="category-list">
+                @foreach (var category in categories)
+                {
+                    <div class="category-row">
+                        @if (categoryBeingEdited == category.Name)
+                        {
+                            <input aria-label="@($"New name for {category.Name}")"
+                                   @bind="editedCategoryName"
+                                   @bind:event="oninput"
+                                   @onkeydown="HandleEditCategoryKeyDown" />
+                        }
+                        else
+                        {
+                            <strong>@category.Name</strong>
+                        }
+
+                        <span class="category-type">
+                            @(category.IsBuiltIn ? "Built-in" : "Custom")
+                        </span>
+
+                        <div class="category-row-actions">
+                            @if (category.IsBuiltIn)
+                            {
+                                <span class="muted">Protected</span>
+                            }
+                            else if (categoryBeingEdited == category.Name)
+                            {
+                                <button class="primary-button compact-button"
+                                        @onclick="SaveCategoryRenameAsync"
+                                        disabled="@isWorking">
+                                    Save
+                                </button>
+                                <button class="secondary-button compact-button"
+                                        @onclick="CancelCategoryRename"
+                                        disabled="@isWorking">
+                                    Cancel
+                                </button>
+                            }
+                            else if (categoryPendingDelete == category.Name)
+                            {
+                                <button class="secondary-button compact-button danger-button"
+                                        @onclick="ConfirmDeleteCategoryAsync"
+                                        disabled="@isWorking">
+                                    Confirm delete
+                                </button>
+                                <button class="secondary-button compact-button"
+                                        @onclick="CancelDeleteCategory"
+                                        disabled="@isWorking">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="secondary-button compact-button"
+                                        @onclick="() => BeginCategoryRename(category.Name)"
+                                        disabled="@isWorking">
+                                    Rename
+                                </button>
+                                <button class="secondary-button compact-button danger-button"
+                                        @onclick="() => BeginDeleteCategory(category.Name)"
+                                        disabled="@isWorking">
+                                    Delete
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    [Inject]
+    private IBankingDataStore DataStore { get; set; } = null!;
+
+    private IReadOnlyList<TransactionCategory>? categories;
+    private UncategorisedTransaction? uncategorisedTransaction;
+    private string selectedReviewCategory = string.Empty;
+    private string newCategoryName = string.Empty;
+    private string editedCategoryName = string.Empty;
+    private string? categoryBeingEdited;
+    private string? categoryPendingDelete;
+    private string? actionMessage;
+    private string? errorMessage;
+    private bool isWorking;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            categories = await DataStore.GetTransactionCategoriesAsync();
+            uncategorisedTransaction =
+                await DataStore.GetRandomUncategorisedTransactionAsync();
+            selectedReviewCategory = string.Empty;
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Categories could not be loaded: {exception.Message}";
+        }
+    }
+
+    private async Task AddCategoryAsync()
+    {
+        var name = newCategoryName.Trim();
+        if (name.Length == 0)
+        {
+            errorMessage = "Enter a category name.";
+            return;
+        }
+
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.AddTransactionCategoryAsync(name);
+                newCategoryName = string.Empty;
+                actionMessage = $"Added {name}.";
+                await ReloadCategoriesAsync();
+            });
+    }
+
+    private void BeginCategoryRename(string name)
+    {
+        categoryPendingDelete = null;
+        categoryBeingEdited = name;
+        editedCategoryName = name;
+        actionMessage = null;
+        errorMessage = null;
+    }
+
+    private async Task SaveCategoryRenameAsync()
+    {
+        var currentName = categoryBeingEdited;
+        var newName = editedCategoryName.Trim();
+        if (currentName is null || newName.Length == 0)
+        {
+            errorMessage = "Enter a category name.";
+            return;
+        }
+
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.RenameTransactionCategoryAsync(currentName, newName);
+                categoryBeingEdited = null;
+                actionMessage = $"Renamed {currentName} to {newName}.";
+                await ReloadCategoriesAsync();
+            });
+    }
+
+    private void CancelCategoryRename()
+    {
+        categoryBeingEdited = null;
+        editedCategoryName = string.Empty;
+        errorMessage = null;
+    }
+
+    private void BeginDeleteCategory(string name)
+    {
+        categoryBeingEdited = null;
+        categoryPendingDelete = name;
+        actionMessage = null;
+        errorMessage = null;
+    }
+
+    private async Task ConfirmDeleteCategoryAsync()
+    {
+        var name = categoryPendingDelete;
+        if (name is null)
+        {
+            return;
+        }
+
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.DeleteTransactionCategoryAsync(name);
+                categoryPendingDelete = null;
+                actionMessage =
+                    $"Deleted {name}. Its transactions are now uncategorised.";
+                await ReloadCategoriesAsync();
+                uncategorisedTransaction =
+                    await DataStore.GetRandomUncategorisedTransactionAsync();
+            });
+    }
+
+    private void CancelDeleteCategory()
+    {
+        categoryPendingDelete = null;
+    }
+
+    private async Task CategoriseRandomTransactionAsync()
+    {
+        var transaction = uncategorisedTransaction?.Transaction;
+        if (transaction is null || string.IsNullOrWhiteSpace(selectedReviewCategory))
+        {
+            errorMessage = "Choose a category first.";
+            return;
+        }
+
+        var category = selectedReviewCategory;
+        await RunActionAsync(
+            async () =>
+            {
+                await DataStore.SetTransactionCategoryAsync(transaction.Id, category);
+                actionMessage = $"{transaction.Description} is now {category}.";
+                uncategorisedTransaction =
+                    await DataStore.GetRandomUncategorisedTransactionAsync();
+                selectedReviewCategory = string.Empty;
+            });
+    }
+
+    private async Task ReloadCategoriesAsync()
+    {
+        categories = await DataStore.GetTransactionCategoriesAsync();
+        if (!categories.Any(category =>
+                category.Name.Equals(
+                    selectedReviewCategory,
+                    StringComparison.OrdinalIgnoreCase)))
+        {
+            selectedReviewCategory = string.Empty;
+        }
+    }
+
+    private async Task RunActionAsync(Func<Task> action)
+    {
+        isWorking = true;
+        errorMessage = null;
+        actionMessage = null;
+        try
+        {
+            await action();
+        }
+        catch (InvalidOperationException exception)
+        {
+            errorMessage = exception.Message;
+        }
+        finally
+        {
+            isWorking = false;
+        }
+    }
+
+    private async Task HandleAddCategoryKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await AddCategoryAsync();
+        }
+    }
+
+    private async Task HandleEditCategoryKeyDown(KeyboardEventArgs args)
+    {
+        if (args.Key == "Enter")
+        {
+            await SaveCategoryRenameAsync();
+        }
+        else if (args.Key == "Escape")
+        {
+            CancelCategoryRename();
+        }
+    }
+
+    private static string FormatMoney(decimal amount) => amount.ToString("C2");
+}

@@ -374,8 +374,94 @@ public sealed class SqliteBankingDataStoreTests
                 0,
                 50,
                 TestContext.Current.CancellationToken);
+            var categories = await store.GetTransactionCategoriesAsync(
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(100m, Assert.Single(page.Entries).RunningBalance);
+            Assert.Contains(
+                categories,
+                category => category.Name == "Test" && !category.IsBuiltIn);
+        }
+        finally
+        {
+            DeleteDatabase(databasePath);
+        }
+    }
+
+    [Fact]
+    public async Task CategoryManagement_UpdatesTransactionsRulesAndReviewQueue()
+    {
+        var databasePath = CreateDatabasePath();
+        try
+        {
+            var cancellationToken = TestContext.Current.CancellationToken;
+            var store = new SqliteBankingDataStore(databasePath);
+            await store.AddAccountAsync(
+                new BankAccount("everyday", "Everyday", "Manual account", null, "AUD"),
+                cancellationToken);
+            var coffee = CreateTransaction(
+                "coffee",
+                "Coffee Club",
+                TransactionCategories.Uncategorised);
+            var unknown = CreateTransaction(
+                "unknown",
+                "Unknown Merchant",
+                TransactionCategories.Uncategorised);
+            await store.ImportTransactionsAsync(
+                "everyday",
+                [coffee, unknown],
+                "Imported transactions",
+                cancellationToken);
+
+            await store.AddTransactionCategoryAsync("Coffee", cancellationToken);
+            await store.SetTransactionCategoryAsync(
+                coffee.Id,
+                "Coffee",
+                cancellationToken);
+            await store.RenameTransactionCategoryAsync(
+                "Coffee",
+                "Cafes",
+                cancellationToken);
+
+            var renamedSnapshot = await store.GetSnapshotAsync(cancellationToken);
+            var renamedRules = await store.GetLearnedTransactionCategoryRulesAsync(
+                cancellationToken);
+            var categories = await store.GetTransactionCategoriesAsync(cancellationToken);
+            var reviewTransaction = await store.GetRandomUncategorisedTransactionAsync(
+                cancellationToken);
+
+            Assert.Equal(
+                "Cafes",
+                renamedSnapshot.Transactions.Single(
+                    transaction => transaction.Id == coffee.Id).Category);
+            Assert.Equal("Cafes", Assert.Single(renamedRules).Category);
+            Assert.Contains(
+                categories,
+                category => category.Name == "Cafes" && !category.IsBuiltIn);
+            Assert.Equal(unknown.Id, reviewTransaction?.Transaction.Id);
+            Assert.Equal("Everyday", reviewTransaction?.AccountName);
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => store.RenameTransactionCategoryAsync(
+                    "Groceries",
+                    "Food",
+                    cancellationToken));
+
+            await store.DeleteTransactionCategoryAsync("Cafes", cancellationToken);
+
+            var deletedSnapshot = await store.GetSnapshotAsync(cancellationToken);
+            var deletedRules = await store.GetLearnedTransactionCategoryRulesAsync(
+                cancellationToken);
+            var deletedCategories = await store.GetTransactionCategoriesAsync(
+                cancellationToken);
+
+            Assert.Equal(
+                TransactionCategories.Uncategorised,
+                deletedSnapshot.Transactions.Single(
+                    transaction => transaction.Id == coffee.Id).Category);
+            Assert.Empty(deletedRules);
+            Assert.DoesNotContain(
+                deletedCategories,
+                category => category.Name == "Cafes");
         }
         finally
         {

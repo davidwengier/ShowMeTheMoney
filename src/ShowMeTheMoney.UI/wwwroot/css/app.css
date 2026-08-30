@@ -693,6 +693,128 @@ input:disabled {
     color: #f2f8f5;
 }
 
+.category-page-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.category-review-card {
+    display: grid;
+    grid-template-columns: minmax(16rem, 1fr) minmax(18rem, 0.8fr);
+    gap: 1.5rem;
+    align-items: end;
+    padding: 1.25rem;
+}
+
+.category-review-details {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.category-review-details > span:first-child {
+    color: #91a69e;
+    font-size: 0.82rem;
+}
+
+.category-review-details > strong {
+    font-size: 1.2rem;
+}
+
+.category-review-details > span:last-child {
+    font-size: 1.1rem;
+    font-weight: 800;
+}
+
+.category-review-action {
+    display: grid;
+    grid-template-columns: minmax(10rem, 1fr) auto;
+    gap: 0.65rem;
+    align-items: end;
+}
+
+.category-review-action label,
+.add-category-form {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.category-review-action label > span,
+.add-category-form > label {
+    color: #9bc9b7;
+    font-size: 0.75rem;
+    font-weight: 750;
+}
+
+.category-review-action select {
+    width: 100%;
+    padding: 0.7rem 2rem 0.7rem 0.8rem;
+    border: 1px solid #2d5546;
+    border-radius: 0.65rem;
+    outline: none;
+    background: #091813;
+    color: #f2f8f5;
+}
+
+.category-review-action option {
+    background: #091813;
+    color: #f2f8f5;
+}
+
+.category-review-empty {
+    display: flex;
+    min-height: 10rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 2rem;
+    color: #91a69e;
+    text-align: center;
+}
+
+.category-review-empty strong {
+    color: #f2f8f5;
+}
+
+.add-category-form {
+    padding: 1.2rem;
+    border-bottom: 1px solid #1d332c;
+}
+
+.add-category-form input {
+    flex: 1;
+}
+
+.category-row {
+    display: grid;
+    grid-template-columns: minmax(12rem, 1fr) 6rem minmax(16rem, auto);
+    gap: 1rem;
+    align-items: center;
+    padding: 0.85rem 1.2rem;
+    border-bottom: 1px solid #172a24;
+}
+
+.category-row:last-child {
+    border-bottom: 0;
+}
+
+.category-type {
+    color: #91a69e;
+    font-size: 0.78rem;
+}
+
+.category-row-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.55rem;
+}
+
+.danger-button {
+    border-color: #743d36;
+    color: #ffad99;
+}
+
 .dialog-backdrop {
     position: fixed;
     z-index: 1000;
@@ -807,6 +929,16 @@ input:disabled {
 
     .transaction-pagination > div {
         justify-content: space-between;
+    }
+
+    .category-review-card,
+    .category-review-action,
+    .category-row {
+        grid-template-columns: 1fr;
+    }
+
+    .category-row-actions {
+        justify-content: flex-start;
     }
 
     .account-settings-form {

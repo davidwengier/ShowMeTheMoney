@@ -338,6 +338,7 @@ else
     private int transactionCount;
     private int transactionPageIndex;
     private bool isLoadingTransactions;
+    private IReadOnlyList<TransactionCategory> availableCategories = [];
 
     private BankAccount? SelectedAccount =>
         overview?.Accounts.FirstOrDefault(account => account.Id == selectedAccountId);
@@ -366,6 +367,7 @@ else
         try
         {
             overview = await DataSource.GetOverviewAsync();
+            availableCategories = await DataStore.GetTransactionCategoriesAsync();
             var desiredAccountId = accountToSelect ?? selectedAccountId;
             selectedAccountId = overview.Accounts.Any(account => account.Id == desiredAccountId)
                 ? desiredAccountId
@@ -777,9 +779,14 @@ else
     private static string FormatOptionalMoney(decimal? amount) =>
         amount is null ? "Balance unavailable" : FormatMoney(amount.Value);
 
-    private static IReadOnlyList<string> GetCategoryOptions(string currentCategory) =>
-        TransactionCategories.All.Contains(currentCategory, StringComparer.Ordinal)
-            ? TransactionCategories.All
-            : [currentCategory, .. TransactionCategories.All];
+    private IReadOnlyList<string> GetCategoryOptions(string currentCategory)
+    {
+        var categoryNames = availableCategories
+            .Select(category => category.Name)
+            .ToArray();
+        return categoryNames.Contains(currentCategory, StringComparer.OrdinalIgnoreCase)
+            ? categoryNames
+            : [currentCategory, .. categoryNames];
+    }
 
 }
