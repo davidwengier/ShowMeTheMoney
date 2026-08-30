@@ -20,6 +20,26 @@
     </div>
 </section>
 
+@if (availableUpdate is not null)
+{
+    <section class="update-card">
+        <div>
+            <p class="eyebrow">Update available</p>
+            <strong>Show Me The Money @availableUpdate.Version is ready</strong>
+            <span>
+                @(isInstallingUpdate
+                    ? "Downloading and preparing the update..."
+                    : "Install it now and the app will restart automatically.")
+            </span>
+        </div>
+        <button class="primary-button"
+                @onclick="InstallUpdateAsync"
+                disabled="@isInstallingUpdate">
+            @(isInstallingUpdate ? "Installing..." : "Update and restart")
+        </button>
+    </section>
+}
+
 @if (importMessage is not null)
 {
     <div class="message import-message">@importMessage</div>
@@ -130,9 +150,9 @@ else
     </section>
 }
 
-@if (updateStatus is not null)
+@if (updateError is not null)
 {
-    <div class="message update-message">@updateStatus</div>
+    <div class="message error-message update-message">@updateError</div>
 }
 
 @code {
@@ -155,8 +175,10 @@ else
     private TransactionSummary summary = new(0, 0, 0);
     private string? errorMessage;
     private string? importMessage;
-    private string? updateStatus;
+    private string? updateError;
+    private ApplicationUpdate? availableUpdate;
     private bool isLoading;
+    private bool isInstallingUpdate;
 
     protected override async Task OnInitializedAsync()
     {
@@ -231,15 +253,28 @@ else
 
         try
         {
-            var update = await UpdateService.CheckForUpdateAsync();
-            if (update is not null)
-            {
-                updateStatus = $"Version {update.Version} is available and can be installed on the next app update pass.";
-            }
+            availableUpdate = await UpdateService.CheckForUpdateAsync();
         }
         catch (ApplicationUpdateException exception)
         {
-            updateStatus = exception.Message;
+            updateError = exception.Message;
+        }
+    }
+
+    private async Task InstallUpdateAsync()
+    {
+        isInstallingUpdate = true;
+        updateError = null;
+
+        try
+        {
+            await UpdateService.DownloadUpdateAsync();
+            UpdateService.ApplyUpdateAndRestart();
+        }
+        catch (ApplicationUpdateException exception)
+        {
+            updateError = exception.Message;
+            isInstallingUpdate = false;
         }
     }
 

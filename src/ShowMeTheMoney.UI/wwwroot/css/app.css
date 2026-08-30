@@ -53,7 +53,6 @@ button {
     color: #07110f;
 }
 
-.prototype-badge,
 .connection-label {
     padding: 0.4rem 0.7rem;
     border: 1px solid #2d5546;
@@ -141,6 +140,7 @@ h2 {
 }
 
 .connection-card,
+.update-card,
 .panel,
 .summary-card,
 .loading-card,
@@ -149,6 +149,30 @@ h2 {
     border: 1px solid #1d332c;
     border-radius: 1rem;
     background: rgba(13, 29, 24, 0.86);
+}
+
+.update-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    padding: 1.1rem 1.2rem;
+    margin-bottom: 1rem;
+    border-color: #3b745e;
+    background:
+        linear-gradient(90deg, rgba(66, 229, 155, 0.12), transparent),
+        rgba(13, 29, 24, 0.94);
+}
+
+.update-card > div {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.update-card span {
+    color: #9bc9b7;
+    font-size: 0.88rem;
 }
 
 .empty-state {
