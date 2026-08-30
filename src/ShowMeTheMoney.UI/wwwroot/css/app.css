@@ -152,6 +152,12 @@ h2 {
     color: #f2f8f5;
 }
 
+.account-filter option,
+.transaction-category option {
+    background: #091813;
+    color: #f2f8f5;
+}
+
 .primary-button,
 .secondary-button {
     padding: 0.75rem 1.1rem;
@@ -599,6 +605,68 @@ input:disabled {
 }
 
 .sankey-empty strong {
+    color: #f2f8f5;
+}
+
+.rules-grid {
+    display: grid;
+    gap: 1rem;
+}
+
+.rules-table {
+    overflow-x: auto;
+}
+
+.rules-header,
+.rule-row {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1.5fr) minmax(8rem, 0.7fr) minmax(12rem, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 0.8rem 1.2rem;
+    border-bottom: 1px solid #172a24;
+}
+
+.rules-header {
+    color: #718b81;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.rule-row:last-child {
+    border-bottom: 0;
+}
+
+.rule-row code {
+    width: fit-content;
+    padding: 0.25rem 0.4rem;
+    border-radius: 0.35rem;
+    background: #091813;
+    color: #b9d7cc;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 0.8rem;
+}
+
+.rule-row span {
+    color: #91a69e;
+    font-size: 0.82rem;
+}
+
+.rules-empty {
+    display: flex;
+    min-height: 10rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    padding: 2rem;
+    color: #91a69e;
+    text-align: center;
+}
+
+.rules-empty strong {
     color: #f2f8f5;
 }
 

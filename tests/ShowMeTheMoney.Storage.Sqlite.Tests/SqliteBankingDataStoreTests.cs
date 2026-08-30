@@ -180,6 +180,8 @@ public sealed class SqliteBankingDataStoreTests
                 cancellationToken);
 
             var loaded = await store.GetSnapshotAsync(cancellationToken);
+            var learnedRules = await store.GetLearnedTransactionCategoryRulesAsync(
+                cancellationToken);
 
             Assert.Equal(
                 "Groceries",
@@ -189,6 +191,10 @@ public sealed class SqliteBankingDataStoreTests
                     "coffee",
                     StringComparison.OrdinalIgnoreCase)),
                 transaction => Assert.Equal("Dining", transaction.Category));
+            var learnedRule = Assert.Single(learnedRules);
+            Assert.Equal("COFFEE CLUB", learnedRule.Pattern);
+            Assert.Equal("Dining", learnedRule.Category);
+            Assert.Equal(TransactionCategoryRuleMatch.ExactDescription, learnedRule.Match);
         }
         finally
         {

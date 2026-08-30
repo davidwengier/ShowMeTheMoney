@@ -1,0 +1,116 @@
+@page "/category-rules"
+
+<PageTitle>Category Rules - Show Me The Money</PageTitle>
+
+<section class="hero">
+    <div>
+        <p class="eyebrow">How transactions are classified</p>
+        <h1>Category rules</h1>
+        <p class="hero-copy">
+            Learned rules come from category changes you make. Built-in rules
+            provide initial suggestions for common transaction descriptions.
+        </p>
+    </div>
+</section>
+
+@if (errorMessage is not null)
+{
+    <div class="message error-message">@errorMessage</div>
+}
+else if (learnedRules is null)
+{
+    <div class="loading-card">Loading category rules...</div>
+}
+else
+{
+    <section class="rules-grid">
+        <article class="panel rules-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Your corrections</p>
+                    <h2>Learned rules</h2>
+                </div>
+                <span>@learnedRules.Count</span>
+            </div>
+
+            @if (learnedRules.Count == 0)
+            {
+                <div class="rules-empty">
+                    <strong>No learned rules yet</strong>
+                    <span>Change a transaction category to teach the app a rule.</span>
+                </div>
+            }
+            else
+            {
+                <div class="rules-table">
+                    <div class="rules-header">
+                        <span>Merchant description</span>
+                        <span>Category</span>
+                        <span>Matches</span>
+                    </div>
+                    @foreach (var rule in learnedRules)
+                    {
+                        <div class="rule-row">
+                            <code>@rule.Pattern</code>
+                            <strong>@rule.Category</strong>
+                            <span>@DescribeMatch(rule.Match)</span>
+                        </div>
+                    }
+                </div>
+            }
+        </article>
+
+        <article class="panel rules-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">Included with the app</p>
+                    <h2>Built-in rules</h2>
+                </div>
+                <span>@TransactionCategoryRules.BuiltInRules.Count</span>
+            </div>
+            <div class="rules-table">
+                <div class="rules-header">
+                    <span>Description contains</span>
+                    <span>Category</span>
+                    <span>Matches</span>
+                </div>
+                @foreach (var rule in TransactionCategoryRules.BuiltInRules)
+                {
+                    <div class="rule-row">
+                        <code>@rule.Pattern</code>
+                        <strong>@rule.Category</strong>
+                        <span>@DescribeMatch(rule.Match)</span>
+                    </div>
+                }
+            </div>
+        </article>
+    </section>
+}
+
+@code {
+    [Inject]
+    private IBankingDataStore DataStore { get; set; } = null!;
+
+    private IReadOnlyList<TransactionCategoryRule>? learnedRules;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            learnedRules = await DataStore.GetLearnedTransactionCategoryRulesAsync();
+        }
+        catch (Exception exception)
+        {
+            errorMessage = $"Category rules could not be loaded: {exception.Message}";
+        }
+    }
+
+    private static string DescribeMatch(TransactionCategoryRuleMatch match) =>
+        match switch
+        {
+            TransactionCategoryRuleMatch.ExactDescription => "Exact normalized description",
+            TransactionCategoryRuleMatch.MoneyInDescriptionContains => "Money in only",
+            _ => "Any transaction"
+        };
+}

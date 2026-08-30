@@ -21,6 +21,9 @@ public interface IBankingDataStore : IBankingDataSource
         string accountId,
         CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<TransactionCategoryRule>> GetLearnedTransactionCategoryRulesAsync(
+        CancellationToken cancellationToken = default);
+
     Task ImportTransactionsAsync(
         string accountId,
         IReadOnlyList<BankTransaction> transactions,

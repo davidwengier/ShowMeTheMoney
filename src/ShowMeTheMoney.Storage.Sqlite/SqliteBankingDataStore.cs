@@ -322,6 +322,34 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
         }
     }
 
+    public async Task<IReadOnlyList<TransactionCategoryRule>>
+        GetLearnedTransactionCategoryRulesAsync(
+            CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            await using var connection = await OpenConnectionAsync(cancellationToken);
+            await EnsureSchemaAsync(connection, cancellationToken);
+            var rules = await ReadCategoryRulesAsync(
+                connection,
+                transaction: null,
+                cancellationToken);
+            return rules
+                .Select(rule => new TransactionCategoryRule(
+                    rule.Key,
+                    rule.Value,
+                    TransactionCategoryRuleMatch.ExactDescription))
+                .OrderBy(rule => rule.Category, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(rule => rule.Pattern, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<SqliteConnection> OpenConnectionAsync(
         CancellationToken cancellationToken)
     {
@@ -380,7 +408,7 @@ public sealed class SqliteBankingDataStore : IBankingDataStore
 
     private static async Task<IReadOnlyDictionary<string, string>> ReadCategoryRulesAsync(
         SqliteConnection connection,
-        SqliteTransaction transaction,
+        SqliteTransaction? transaction,
         CancellationToken cancellationToken)
     {
         var rules = new Dictionary<string, string>(StringComparer.Ordinal);
